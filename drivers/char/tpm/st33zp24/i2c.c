@@ -24,6 +24,7 @@
 #include <linux/tpm.h>
 #include <linux/platform_data/st33zp24.h>
 
+#include "../tpm.h"
 #include "st33zp24.h"
 
 #define TPM_DUMMY_BYTE			0xAA
