@@ -611,7 +611,7 @@ EXPORT_SYMBOL_GPL(serial8250_rpm_put);
  * once and disable_runtime_pm_tx() will still disable RPM because the fifo is
  * empty and the HW can idle again.
  */
-static void serial8250_rpm_get_tx(struct uart_8250_port *p)
+void serial8250_rpm_get_tx(struct uart_8250_port *p)
 {
 	unsigned char rpm_active;
 
@@ -624,7 +624,7 @@ static void serial8250_rpm_get_tx(struct uart_8250_port *p)
 	pm_runtime_get_sync(p->port.dev);
 }
 
-static void serial8250_rpm_put_tx(struct uart_8250_port *p)
+void serial8250_rpm_put_tx(struct uart_8250_port *p)
 {
 	unsigned char rpm_active;
 
