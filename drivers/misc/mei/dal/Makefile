@@ -9,3 +9,5 @@ mei_dal-objs += admin_pack_ext.o
 mei_dal-objs += admin_pack_int.o
 mei_dal-objs += bhp_impl.o
 mei_dal-objs += bhp_impl_ta.o
+
+obj-$(CONFIG_INTEL_MEI_DAL_TEST) += mei_dal_test.o

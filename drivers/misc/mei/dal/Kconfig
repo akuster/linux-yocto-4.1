@@ -4,3 +4,10 @@ config INTEL_MEI_DAL
 	help
 	  Dynamic Application Loader enables running java applets
 	  for user space clients and kernel space clients.
+
+config INTEL_MEI_DAL_TEST
+	tristate "Test Module for Dynamic Application Loader for ME"
+	depends on INTEL_MEI_DAL
+	help
+	  Testing Module for Dynamic Application Loader enables running java applets
+	  for user space clients and kernel space clients.
