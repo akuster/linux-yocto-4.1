@@ -3367,6 +3367,9 @@ static void serial8250_console_putchar(struct uart_port *port, int ch)
  *	any possible real use of the port...
  *
  *	The console_lock must be held when we get here.
+ *
+ *	Doing runtime PM is a really bad idea for the kernel console.
+ *	Thus we assume that the function called when device is powered on.
  */
 static void serial8250_console_write(struct uart_8250_port *up, const char *s,
 				     unsigned int count)
@@ -3377,8 +3380,6 @@ static void serial8250_console_write(struct uart_8250_port *up, const char *s,
 	int locked = 1;
 
 	touch_nmi_watchdog();
-
-	serial8250_rpm_get(up);
 
 	if (port->sysrq)
 		locked = 0;
@@ -3439,7 +3440,6 @@ static void serial8250_console_write(struct uart_8250_port *up, const char *s,
 
 	if (locked)
 		spin_unlock_irqrestore(&port->lock, flags);
-	serial8250_rpm_put(up);
 }
 
 static void univ8250_console_write(struct console *co, const char *s,
@@ -3471,6 +3471,7 @@ static int serial8250_console_setup(struct uart_port *port, char *options, bool 
 	int bits = 8;
 	int parity = 'n';
 	int flow = 'n';
+	int ret;
 
 	if (!port->iobase && !port->membase)
 		return -ENODEV;
@@ -3480,7 +3481,18 @@ static int serial8250_console_setup(struct uart_port *port, char *options, bool 
 	else if (probe)
 		baud = probe_baud(port);
 
-	return uart_set_options(port, port->cons, baud, parity, bits, flow);
+	ret = uart_set_options(port, port->cons, baud, parity, bits, flow);
+
+	if (port->dev)
+		pm_runtime_get_noresume(port->dev);
+
+	return ret;
+}
+
+static void serial8250_console_exit(struct uart_port *port)
+{
+	if (port->dev)
+		pm_runtime_put_noidle(port->dev);
 }
 
 static int univ8250_console_setup(struct console *co, char *options)
@@ -3499,6 +3511,14 @@ static int univ8250_console_setup(struct console *co, char *options)
 	port->cons = co;
 
 	return serial8250_console_setup(port, options, false);
+}
+
+static void univ8250_console_exit(struct console *co)
+{
+	struct uart_port *port;
+
+	port = &serial8250_ports[co->index].port;
+	serial8250_console_exit(port);
 }
 
 /**
@@ -3558,6 +3578,7 @@ static struct console univ8250_console = {
 	.write		= univ8250_console_write,
 	.device		= uart_console_device,
 	.setup		= univ8250_console_setup,
+	.exit		= univ8250_console_exit,
 	.match		= univ8250_console_match,
 	.flags		= CON_PRINTBUFFER | CON_ANYTIME,
 	.index		= -1,
