@@ -7708,8 +7708,9 @@ static int igb_resume(struct device *dev)
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
-	u32 err;
-	int status;
+	struct sk_buff *skb;
+	u32 err, reg_val, wupl;
+	int status, i;
 
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
@@ -7740,6 +7741,33 @@ static int igb_resume(struct device *dev)
 	 */
 	igb_get_hw_control(adapter);
 
+	reg_val = rd32(E1000_WUS);
+	if (reg_val) {
+		/* WUPM stores only the first 128 bytes of the wake packet.
+		 * Read the packet only if we have the whole thing.
+		 */
+		wupl = rd32(E1000_WUPL);
+		wupl &= E1000_WUPL_MASK;
+		if ((wupl == 0) || (wupl > E1000_WUPM_BYTES))
+			goto skip_wupm;
+
+		skb = netdev_alloc_skb(netdev, E1000_WUPM_BYTES + NET_IP_ALIGN);
+		if (!skb)
+			goto skip_wupm;
+
+		skb_reserve(skb, NET_IP_ALIGN);
+		skb_put(skb, wupl);
+
+		for (i = 0; i < DIV_ROUND_UP(wupl, 4); i++) {
+			reg_val = rd32(E1000_WUPM_REG(i));
+			memcpy(skb->data + (i * 4), &reg_val, 4);
+		}
+
+		skb->protocol = eth_type_trans(skb, netdev);
+		netif_rx(skb);
+	}
+
+skip_wupm:
 	wr32(E1000_WUS, ~0);
 
 	if (netdev->flags & IFF_UP) {
