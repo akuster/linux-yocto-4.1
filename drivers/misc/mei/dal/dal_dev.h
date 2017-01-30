@@ -90,21 +90,6 @@ enum dal_intf {
 	DAL_INTF_CDEV,
 };
 
-/** enum dal_notify_action_type:
- *   represents the actions dal_mei inform on
- */
-enum dal_notify_action_type {
-	DAL_NOTIFY_ACTION_IVM_REGISTERED,
-	DAL_NOTIFY_ACTION_SDM_REGISTERED,
-	DAL_NOTIFY_ACTION_RTM_REGISTERED,
-
-	DAL_NOTIFY_ACTION_IVM_UNREGISTERED,
-	DAL_NOTIFY_ACTION_SDM_UNREGISTERED,
-	DAL_NOTIFY_ACTION_RTM_UNREGISTERED,
-
-	DAL_NOTIFY_ACTION_MAX
-};
-
 /** enum dal_dev_type:
  *   represents the devices that are exposed to userspace
  *
@@ -205,8 +190,6 @@ struct dal_client {
 	struct kfifo read_queue;
 	char write_buffer[DAL_MAX_BUFFER_SIZE];
 	enum dal_intf intf;
-
-	size_t read_buffer_size;
 
 	u64 seq;
 	u32 expected_msg_size_from_fw;

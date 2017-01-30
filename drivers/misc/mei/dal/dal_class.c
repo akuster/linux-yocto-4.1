@@ -117,14 +117,12 @@ void dal_dc_print(struct device *dev, struct dal_client *dc)
 
 	dev_dbg(dev, "client data:\n"
 		     "is_user_space_client = %d\n"
-		     "read_buffer_size = %zu\n"
 		     "expected_msg_size_from_fw = %d\n"
 		     "expected_msg_size_to_fw = %d\n"
 		     "bytes_rcvd_from_fw = %d\n"
 		     "bytes_sent_to_fw = %d\n"
 		     "bytes_sent_to_host = %d\n",
 		dc->intf,
-		dc->read_buffer_size,
 		dc->expected_msg_size_from_fw,
 		dc->expected_msg_size_to_fw,
 		dc->bytes_rcvd_from_fw,
@@ -159,7 +157,6 @@ static void dal_dc_update_read_state(struct dal_client *dc, ssize_t len)
 
 	/* update number of bytes rcvd */
 	dc->bytes_rcvd_from_fw += len;
-	dc->read_buffer_size += len;
 }
 
 /*
