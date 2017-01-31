@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -89,7 +89,17 @@
  */
 struct class *dal_class;
 
-/* comperator for cl devices */
+/**
+ * dal_dev_match - match function to find dal device
+ *
+ * Used to get dal device from dal_class by device id
+ *
+ * @dev: device structure
+ * @data: the device id
+ *
+ * Return: 1 on match
+ *         0 on mismatch
+ */
 static int dal_dev_match(struct device *dev, const void *data)
 {
 	struct dal_device *ddev;
@@ -101,13 +111,25 @@ static int dal_dev_match(struct device *dev, const void *data)
 	return ddev->device_id == *device_id;
 }
 
-/* find device in dal_class object */
+/**
+ * dal_find_dev - get dal device from dal_class by device id
+ *
+ * @device_id: device id
+ *
+ * Return: pointer to the requested device
+ *         NULL if the device wasn't found
+ */
 struct device *dal_find_dev(enum dal_dev_type device_id)
 {
 	return class_find_device(dal_class, NULL, &device_id, dal_dev_match);
 }
 
-/* prints client data */
+/**
+ * dal_dc_print - print client data for debug purpose
+ *
+ * @dev: device structure
+ * @dc: dal client
+ */
 void dal_dc_print(struct device *dev, struct dal_client *dc)
 {
 	if (!dc) {
@@ -115,28 +137,21 @@ void dal_dc_print(struct device *dev, struct dal_client *dc)
 		return;
 	}
 
-	dev_dbg(dev, "client data:\n"
-		     "is_user_space_client = %d\n"
-		     "expected_msg_size_from_fw = %d\n"
-		     "expected_msg_size_to_fw = %d\n"
-		     "bytes_rcvd_from_fw = %d\n"
-		     "bytes_sent_to_fw = %d\n"
-		     "bytes_sent_to_host = %d\n",
+	dev_dbg(dev, "dc: intf = %d. expected to send: %d, sent: %d. expected to receive: %d, received: %d\n",
 		dc->intf,
-		dc->expected_msg_size_from_fw,
 		dc->expected_msg_size_to_fw,
-		dc->bytes_rcvd_from_fw,
 		dc->bytes_sent_to_fw,
-		dc->bytes_sent_to_host);
+		dc->expected_msg_size_from_fw,
+		dc->bytes_rcvd_from_fw);
 }
 
 /**
- * dal_dc_update_read_state - update relevant client state variables
- *      according to the msg received header or payload
+ * dal_dc_update_read_state - update client read state
+ *
  * @dc : dal client
  * @len: received message length
  *
- * Lock: called from 'dal_recv_cb' which is under lock.
+ * Locking: called under "ddev->context_lock" lock
  */
 static void dal_dc_update_read_state(struct dal_client *dc, ssize_t len)
 {
@@ -152,7 +167,6 @@ static void dal_dc_update_read_state(struct dal_client *dc, ssize_t len)
 			dc->expected_msg_size_from_fw, len);
 
 		/* clear data from the past. */
-		dc->bytes_sent_to_host = 0;
 		dc->bytes_rcvd_from_fw = 0;
 	}
 
@@ -160,8 +174,13 @@ static void dal_dc_update_read_state(struct dal_client *dc, ssize_t len)
 	dc->bytes_rcvd_from_fw += len;
 }
 
-/*
- * get interface (user space OR kernel space) to send the received msg
+/**
+ * get_client_by_squence_number - find the client interface which the received
+ *                                message is sent to
+ *
+ * @ddev : dal device
+ *
+ * Return: kernel space interface or user space interface
  */
 static enum dal_intf get_client_by_squence_number(struct dal_device *ddev)
 {
@@ -180,6 +199,11 @@ static enum dal_intf get_client_by_squence_number(struct dal_device *ddev)
 	return DAL_INTF_CDEV;
 }
 
+/**
+ * dal_recv_cb - callback to receive message from FW over mei
+ *
+ * @cldev : mei client device
+ */
 static void dal_recv_cb(struct mei_cl_device *cldev)
 {
 	struct dal_device *ddev;
@@ -262,7 +286,14 @@ out:
 	dev_dbg(&cldev->dev, "recv_cb(): unlock\n");
 }
 
-/* enable mei cldev */
+/**
+ * dal_mei_enable - enable mei cldev
+ *
+ * @ddev: dal device
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int dal_mei_enable(struct dal_device *ddev)
 {
 	int ret;
@@ -288,15 +319,19 @@ static int dal_mei_enable(struct dal_device *ddev)
 	return ret;
 }
 
-/* wait until we can write to MEI,
- * on success will return with the mutex locked
+/**
+ * dal_wait_for_write - wait until the dal client is the first writer
+ *			in writers queue
+ *
+ * @ddev: dal device
+ * @dc: dal client
+ *
+ * Return: 0 on success
+ *         -ERESTARTSYS when wait was interrupted
+ *         -ENODEV when the device was removed
  */
 static int dal_wait_for_write(struct dal_device *ddev, struct dal_client *dc)
 {
-	/*
-	 * wait until current write client is null OR
-	 * we are the current writer
-	 */
 	if (wait_event_interruptible(ddev->wq,
 				     list_first_entry(&ddev->writers,
 						      struct dal_client,
@@ -312,7 +347,18 @@ static int dal_wait_for_write(struct dal_device *ddev, struct dal_client *dc)
 	return 0;
 }
 
-/* put response msg with error code 'access denied' in client's queue */
+/**
+ * dal_send_error_access_denied - put 'access denied' message
+ *                                in the client read queue.
+ *                                delivering in band error message
+ *
+ * @dc: dal client
+ *
+ * Return: 0 on success
+ *         -ENOMEM when client read queue is full
+ *
+ * Locking: called under "ddev->write_lock" lock
+ */
 static int dal_send_error_access_denied(struct dal_client *dc)
 {
 	struct dal_device *ddev = dc->ddev;
@@ -338,6 +384,22 @@ static int dal_send_error_access_denied(struct dal_client *dc)
 	return 0;
 }
 
+/**
+ * dal_validate_access - validate that the access is permitted.
+ *
+ * in case of open session command, validate that the client has the permissions
+ * to open session to the requested ta
+ *
+ * @hdr: command header
+ * @count: message size
+ * @ctx: context (not used)
+ *
+ * Return: 0 when command is permitted
+ *         -EINVAL when message is invalid
+ *         -EPERM when access is not permitted
+ *
+ * Locking: called under "ddev->write_lock" lock
+ */
 static int dal_validate_access(const struct bhp_command_header *hdr,
 			       size_t count, void *ctx)
 {
@@ -355,11 +417,36 @@ static int dal_validate_access(const struct bhp_command_header *hdr,
 	return dal_access_policy_allowed(ddev, *ta_id, dc);
 }
 
+/**
+ * bh_is_kdi_hdr - check if sequence is in kernel space sequence range
+ *
+ * Each interface (kernel space and user space) has different range of
+ * sequence number. This function checks if given number is in kernel space
+ * sequence range
+ *
+ * @hdr: command header
+ *
+ * Return: true when seq fits kernel space intf
+ *         false when seq fits user space intf
+ */
 static bool bh_is_kdi_hdr(const struct bhp_command_header *hdr)
 {
 	return hdr->seq >= MSG_SEQ_START_NUMBER;
 }
 
+/**
+ * dal_validate_seq - validate that message sequence fits client interface,
+ *                    prevent user space client to use kernel space sequence
+ *
+ * @hdr: command header
+ * @count: message size
+ * @ctx: context - dal client
+ *
+ * Return: 0 when sequence match
+ *         -EPERM when user space client uses kernel space sequence
+ *
+ * Locking: called under "ddev->write_lock" lock
+ */
 static int dal_validate_seq(const struct bhp_command_header *hdr,
 			    size_t count, void *ctx)
 {
@@ -371,13 +458,27 @@ static int dal_validate_seq(const struct bhp_command_header *hdr,
 	return 0;
 }
 
+/*
+ * dal_write_filter_tbl - filter functions to validate that the message
+ *     is being sent is valid, and the user client
+ *     has the permissions to send it
+ */
 static const bh_filter_func dal_write_filter_tbl[] = {
 	dal_validate_access,
 	dal_validate_seq,
 	NULL,
 };
 
-/* Write BH msg via MEI*/
+/**
+ * dal_write- write message to FW over mei
+ *
+ * @dc: dal client
+ * @count: message size
+ * @seq: message sequence (if client is kernel space client)
+ *
+ * Return: >=0 data length on success
+ *         <0 on failure
+ */
 ssize_t dal_write(struct dal_client *dc, size_t count, u64 seq)
 {
 	struct dal_device *ddev = dc->ddev;
@@ -482,9 +583,14 @@ write_more:
 	return ret;
 }
 
-/*
- * blocking function, it waits until the caller (dc)
- * will have data on his read_queue
+/**
+ * dal_wait_for_read - wait until the client (dc) will have data
+ *                     in his read queue
+ *
+ * @dc: dal client
+ *
+ * Return: 0 on success
+ *         -ENODEV when the device was removed
  */
 int dal_wait_for_read(struct dal_client *dc)
 {
@@ -512,6 +618,14 @@ int dal_wait_for_read(struct dal_client *dc)
 	return 0;
 }
 
+/**
+ * dal_dc_destroy - destroy dal client
+ *
+ * @ddev: dal device
+ * @intf: device interface
+ *
+ * Locking: called under "ddev->context_lock" lock
+ */
 void dal_dc_destroy(struct dal_device *ddev, enum dal_intf intf)
 {
 	struct dal_client *dc;
@@ -525,6 +639,16 @@ void dal_dc_destroy(struct dal_device *ddev, enum dal_intf intf)
 	ddev->clients[intf] = NULL;
 }
 
+/**
+ * dal_dc_setup - initialize dal client
+ *
+ * @ddev: dal device
+ * @intf: device interface
+ *
+ * Return: 0 on success
+ *         -EINVAL when client is already initialized
+ *         -ENOMEM on memory allocation failure
+ */
 int dal_dc_setup(struct dal_device *ddev, enum dal_intf intf)
 {
 	int ret;
@@ -557,6 +681,13 @@ int dal_dc_setup(struct dal_device *ddev, enum dal_intf intf)
 }
 
 /* FIXME: should be under lock ? */
+/**
+ * dal_remove - dal remove callback in mei_cl_driver
+ *
+ * @cldev: mei client device
+ *
+ * Return: 0
+ */
 static int dal_remove(struct mei_cl_device *cldev)
 {
 	struct dal_device *ddev = mei_cldev_get_drvdata(cldev);
@@ -584,6 +715,11 @@ static int dal_remove(struct mei_cl_device *cldev)
 	return 0;
 }
 
+/**
+ * dal_class_release - dal release callback in dev structure
+ *
+ * @dev: device structure
+ */
 static void dal_class_release(struct device *dev)
 {
 	struct dal_device *ddev = to_dal_device(dev);
@@ -594,6 +730,15 @@ static void dal_class_release(struct device *dev)
 	kfree(ddev);
 }
 
+/**
+ * dal_probe - dal probe callback in mei_cl_driver
+ *
+ * @cldev: mei client device
+ * @id: mei client device id
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int dal_probe(struct mei_cl_device *cldev,
 		     const struct mei_cl_device_id *id)
 {
@@ -674,6 +819,10 @@ err_dal_mei_remove:
 	 .version = MEI_CL_VERSION_ANY,   \
 	 .driver_info = __device_type}
 
+/*
+ * dal_device_id - ids of dal FW devices,
+ * for all 3 dal FW clients (IVM, SDM and RTM)
+ */
 static const struct mei_cl_device_id dal_device_id[] = {
 	DAL_DEV_ID(IVM_UUID, DAL_MEI_DEVICE_IVM),
 	DAL_DEV_ID(SDM_UUID, DAL_MEI_DEVICE_SDM),
@@ -691,6 +840,9 @@ static struct mei_cl_driver dal_driver = {
 	.remove = dal_remove,
 };
 
+/**
+ * mei_dal_exit - module exit function
+ */
 static void __exit mei_dal_exit(void)
 {
 	pr_info("Kernel DAL Interface shutdown\n");
@@ -704,6 +856,12 @@ static void __exit mei_dal_exit(void)
 	class_destroy(dal_class);
 }
 
+/**
+ * mei_dal_init - module init function
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int __init mei_dal_init(void)
 {
 	int ret;

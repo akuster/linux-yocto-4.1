@@ -65,24 +65,17 @@
 #include <linux/device.h>
 #include <linux/kfifo.h>
 
-#define DAL_MAX_BUFFER_SIZE            4096
+#define DAL_MAX_BUFFER_SIZE       4096
 
-#define DAL_MAX_BUFFER_PER_CLIENT      10 /* TODO: arbitrary number */
-#define DAL_CLIENTS_PER_DEVICE         2
+#define DAL_MAX_BUFFER_PER_CLIENT   10 /* TODO: arbitrary number */
+#define DAL_CLIENTS_PER_DEVICE       2
 
-/*
- * this array contains  pointers to 3 mei_cl_device, ivm, sdm, rtm.
- * it is initialized during dal_probe and is used by the kernel space kdi
- * to send/recv data to/from mei.
- *
- * this array must be initialized before the kernel space kdi uses it.
- */
 extern struct class *dal_class;
 
 /**
- * enum intf_intf - represents dal interface type
+ * enum intf_intf - dal interface type
  *
- * @DAL_INTF_KDI:  (kdi) kernel space interface
+ * @DAL_INTF_KDI: (kdi) kernel space interface
  * @DAL_INTF_CDEV: char device interface
  */
 enum dal_intf {
@@ -90,13 +83,14 @@ enum dal_intf {
 	DAL_INTF_CDEV,
 };
 
-/** enum dal_dev_type:
- *   represents the devices that are exposed to userspace
+/**
+ * enum dal_dev_type - devices that are exposed to userspace
  *
  * @DAL_MEI_DEVICE_IVM: IVM - Intel/Issuer Virtual Machine
  * @DAL_MEI_DEVICE_SDM: SDM - Security Domain Manager
  * @DAL_MEI_DEVICE_RTM: RTM - Run Time Manager (Launcher)
- * @DAL_MEI_DEVICE_SVM: SVM - Secondary Virtual Machine
+ *
+ * @DAL_MEI_DEVICE_MAX: max dal device type
  */
 enum dal_dev_type {
 	DAL_MEI_DEVICE_IVM,
@@ -106,10 +100,42 @@ enum dal_dev_type {
 	DAL_MEI_DEVICE_MAX
 };
 
-struct dal_client;
+/**
+ * struct dal_client - host client
+ *
+ * @ddev: dal parent device
+ * @wrlink: link in the writers list
+ * @read_queue: queue of received messages from DAL FW
+ * @write_buffer: buffer to send to DAL FW
+ * @intf: client interface - user space or kernel space
+ *
+ * @seq: the sequence number of the last message sent (in kernel space API only)
+ *       When a message is received from FW, we use this sequence number
+ *       to decide which client should get the message. If the sequence
+ *       number of the message is equals to the kernel space sequence number,
+ *       the kernel space client should get the message.
+ *       Otherwise the user space client will get it.
+ * @expected_msg_size_from_fw: the expected msg size from FW
+ * @expected_msg_size_to_fw: the expected msg size that will be sent to FW
+ * @bytes_rcvd_from_fw: number of bytes that were received from FW
+ * @bytes_sent_to_fw: number of bytes that were sent to FW
+ */
+struct dal_client {
+	struct dal_device *ddev;
+	struct list_head wrlink;
+	struct kfifo read_queue;
+	char write_buffer[DAL_MAX_BUFFER_SIZE];
+	enum dal_intf intf;
+
+	u64 seq;
+	u32 expected_msg_size_from_fw;
+	u32 expected_msg_size_to_fw;
+	u32 bytes_rcvd_from_fw;
+	u32 bytes_sent_to_fw;
+};
 
 /**
- * struct dal_bh_msg: represent msg sent from the FW.
+ * struct dal_bh_msg - msg received from the FW.
  *
  * @len: message length
  * @msg: message buffer
@@ -120,25 +146,27 @@ struct dal_bh_msg {
 };
 
 /**
- * struct dal_device: represents the context for a device,
- *        each device has a context (i.e IVM, SDM, RTM)
+ * struct dal_device - DAL private device struct.
+ *     each DAL device has a context (i.e IVM, SDM, RTM)
  *
- * @cdev: the character device structure.
- * @context_lock:  a lock for synchronizing access to sensitive
- * variables/data structures
- * @write_lock: synchronizing access to write
- * structures - for current client in write function
- * @rd_wq: a wait queue, for synchronizing requests in a FIFO manner
- * @clients: the clients on this device ( userspace or kernel ).
- * @num_user_space_clients: track the number of times the device file has
- * been opened
- * @bh_fw_msg: a struct represent msg kdi receive from the FW.
- * @current_write_client: stores the current client being served,
- * (needed since rcv is async, need to know who the received data belongs to)
+ * @dev: device on a bus
+ * @cdev: character device
+ * @status: dal device status
+ *
+ * @context_lock: big device lock
+ * @write_lock: lock over write list
+ * @wq: dal clients wait queue. When client wants to send or receive message,
+ *      he waits in this queue until he is ready
+ * @writers: write pending list
+ * @clients: clients on this device (userspace and kernel space)
+ * @bh_fw_msg: message which was received from FW
+ * @current_read_client: current reading client (which receives message from FW)
+ *
  * @cldev: the MEI CL device which corresponds to a single DAL FW HECI client
- * @is_device_remove: a variable that signals that the device is removed
- * and waiting threads on queue should wake up.
- * @device_id: saves device type id.
+ *
+ * @is_device_removed: device removed flag
+ *
+ * @device_id: DAL device type
  */
 struct dal_device {
 	struct device dev;
@@ -146,7 +174,7 @@ struct dal_device {
 #define DAL_DEV_OPENED 0
 	unsigned long status;
 
-	struct mutex context_lock;
+	struct mutex context_lock; /* device lock */
 	struct mutex write_lock; /* write lock */
 	wait_queue_head_t wq;
 	struct list_head writers;
@@ -163,44 +191,8 @@ struct dal_device {
 
 #define to_dal_device(d) container_of(d, struct dal_device, dev)
 
-/**
- * struct dal_client: represents the host client
- *
- * @is_user_space_client:  indicates whether this client is user
- * space or kernel space
- * @read_buffer: buffer containing data received from DAL FW for this client
- * @write_buffer: buffer containing data to send to DAL FW
- * @rcv_callback_queue: a wait queue for synchronizing mei rcv callback and
- * read operations
- * @is_buffer_busy: indicates whether buffer is busy or is it ok to copy
- * data from mei.
- * @read_buffer_size: the amount of data in read_buffer
- * @expected_msg_size_from_fw: the expected msg size from FW
- * @expected_msg_size_to_fw: the expected msg size that will be sent to FW
- * @bytes_rcvd_from_fw: number of bytes that were received from FW
- * @bytes_sent_to_fw: number of bytes that were sent to FW
- * @bytes_sent_to_host: number of bytes that were sent to host
- * @is_another_write_pending: indicates whether this client has another
- * write pending - required to prevent kernel/user space sending
- * interleaving writes
- */
-struct dal_client {
-	struct dal_device *ddev;
-	struct list_head wrlink;
-	struct kfifo read_queue;
-	char write_buffer[DAL_MAX_BUFFER_SIZE];
-	enum dal_intf intf;
-
-	u64 seq;
-	u32 expected_msg_size_from_fw;
-	u32 expected_msg_size_to_fw;
-	u32 bytes_rcvd_from_fw;
-	u32 bytes_sent_to_fw;
-	u32 bytes_sent_to_host;
-};
-
 ssize_t dal_write(struct dal_client *dc, size_t count, u64 seq);
-int dal_wait_for_read(struct  dal_client *dc);
+int dal_wait_for_read(struct dal_client *dc);
 
 struct device *dal_find_dev(enum dal_dev_type device_id);
 
@@ -222,4 +214,4 @@ int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count);
 
 int dal_kdi_init(void);
 void dal_kdi_exit(void);
-#endif  /* _DAL_KDI_H_ */
+#endif /* _DAL_KDI_H_ */
