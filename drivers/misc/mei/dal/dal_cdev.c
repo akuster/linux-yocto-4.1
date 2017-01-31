@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -82,6 +82,15 @@
 /* KDI user space devices major and minor numbers */
 static dev_t dal_devt;
 
+/**
+ * dal_dev_open - dal cdev open function
+ *
+ * @inode: pointer to inode structure
+ * @fp: pointer to file structure
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int dal_dev_open(struct inode *inode, struct file *fp)
 {
 	int ret;
@@ -108,6 +117,15 @@ err:
 	return ret;
 }
 
+/**
+ * dal_dev_release - dal cdev release function
+ *
+ * @inode: pointer to inode structure
+ * @fp: pointer to file structure
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int dal_dev_release(struct inode *inode, struct file *fp)
 {
 	struct dal_client *dc = fp->private_data;
@@ -127,8 +145,19 @@ static int dal_dev_release(struct inode *inode, struct file *fp)
 	return 0;
 }
 
+/**
+ * dal_dev_read - dal cdev read function
+ *
+ * @fp: pointer to file structure
+ * @buf: pointer to user buffer
+ * @count: buffer length
+ * @off: data offset in buffer
+ *
+ * Return: >=0 data length on success
+ *         <0 on failure
+ */
 static ssize_t dal_dev_read(struct file *fp, char __user *buf,
-			    size_t count, loff_t *offp)
+			    size_t count, loff_t *off)
 {
 	struct dal_client *dc = fp->private_data;
 	struct dal_device *ddev = dc->ddev;
@@ -162,8 +191,19 @@ static ssize_t dal_dev_read(struct file *fp, char __user *buf,
 	return copied;
 }
 
+/**
+ * dal_dev_write - dal cdev write function
+ *
+ * @fp: pointer to file structure
+ * @buff: pointer to user buffer
+ * @count: buffer length
+ * @off: data offset in buffer
+ *
+ * Return: >=0 data length on success
+ *         <0 on failure
+ */
 static ssize_t dal_dev_write(struct file *fp, const char __user *buff,
-			     size_t count, loff_t *offp)
+			     size_t count, loff_t *off)
 {
 	struct dal_device *ddev;
 	struct dal_client *dc = fp->private_data;
@@ -196,11 +236,21 @@ static const struct file_operations mei_dal_fops = {
 	.llseek   = no_llseek,
 };
 
+/**
+ * dal_dev_del - delete dal cdev
+ *
+ * @ddev: dal device
+ */
 void dal_dev_del(struct dal_device *ddev)
 {
 	cdev_del(&ddev->cdev);
 }
 
+/**
+ * dal_dev_setup - initialize dal cdev
+ *
+ * @ddev: dal device
+ */
 void dal_dev_setup(struct dal_device *ddev)
 {
 	dev_t devno;
@@ -212,11 +262,25 @@ void dal_dev_setup(struct dal_device *ddev)
 	ddev->cdev.kobj.parent = &ddev->dev.kobj;
 }
 
+/**
+ * dal_dev_add - add dal cdev
+ *
+ * @ddev: dal device
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 int dal_dev_add(struct dal_device *ddev)
 {
 	return cdev_add(&ddev->cdev, ddev->dev.devt, 1);
 }
 
+/**
+ * dal_dev_init - allocate dev_t number
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 int __init dal_dev_init(void)
 {
 	int ret;
@@ -228,6 +292,9 @@ int __init dal_dev_init(void)
 	return ret;
 }
 
+/**
+ * dal_dev_exit - unregister allocated dev_t number
+ */
 void dal_dev_exit(void)
 {
 	unregister_chrdev_region(dal_devt, DAL_MEI_DEVICE_MAX);

@@ -74,6 +74,16 @@
 
 static DEFINE_MUTEX(kdi_lock);
 
+/**
+ * to_kdi_err- converts error number to kdi error
+ *
+ * Beihai errors (>0) converted to DAL_KDI errors (those errors came from FW)
+ * system errors and success value (<=0) stays as is
+ *
+ * @err: error code to convert (either bh err or system err)
+ *
+ * Return: the converted kdi error number or system error
+ */
 static int to_kdi_err(int err)
 {
 	if (err)
@@ -121,6 +131,20 @@ static int to_kdi_err(int err)
 	}
 }
 
+/**
+ * kdi_send - a callback which is called from bhp to send msg over mei
+ *
+ * @handle: DAL device type
+ * @buf: message buffer
+ * @len: buffer length
+ * @seq: message sequence
+ *
+ * Return: 0 on success
+ *         -EINVAL on incorrect input
+ *         -ENODEV when the device can't be found
+ *         -EFAULT if client is NULL
+ *         <0 on dal_write failure
+ */
 int kdi_send(unsigned int handle, const unsigned char *buf,
 	     size_t len, u64 seq)
 {
@@ -168,6 +192,22 @@ out:
 	return ret;
 }
 
+/**
+ * kdi_recv - a callback which is called from bhp to recv msg from FW
+ *
+ * @handle: DAL device type
+ * @buf: buffer of received message
+ * @count: input and output param -
+ *       - input: buffer length
+ *       - output: size of the received message
+ *
+ * Return: 0 on success
+ *         -EINVAL on incorrect input
+ *         -ENODEV when the device can't be found
+ *         -EFAULT when client is NULL or copy failed
+ *         -EMSGSIZE when buffer is too small
+ *         <0 on dal_wait_for_read failure
+ */
 int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count)
 {
 	enum dal_dev_type mei_device;
@@ -233,6 +273,22 @@ out:
 	return ret;
 }
 
+/**
+ * kdi_create_session - create session to an installed trusted application
+ *
+ * @handle: output param to hold the session handle
+ * @jta_id: trusted application (ta) id
+ * @buffer: acp file of the ta
+ * @buffer_length: acp file length
+ * @init_param: init parameters to the session (optional)
+ * @init_param_length: length of the init parameters
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ *
+ * Locking: called under "kdi_lock" lock
+ */
 static int kdi_create_session(u64 *handle, const char *jta_id,
 			      const u8 *buffer, size_t buffer_length,
 			      const u8 *init_param, size_t init_param_length)
@@ -277,6 +333,21 @@ static int kdi_create_session(u64 *handle, const char *jta_id,
 	return ret;
 }
 
+/**
+ * dal_create_session - create session to an installed trusted application.
+ *			Expoerted function in kernel API
+ *
+ * @session_handle: output param to hold the session handle
+ * @ta_id: trusted application (ta) id
+ * @acp_pkg: acp file of the ta
+ * @acp_pkg_len: acp file length
+ * @init_param:	init parameters to the session (optional)
+ * @init_param_len: length of the init parameters
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 int dal_create_session(u64 *session_handle,  const char *ta_id,
 		       const u8 *acp_pkg, size_t acp_pkg_len,
 		       const u8 *init_param, size_t init_param_len)
@@ -296,6 +367,25 @@ int dal_create_session(u64 *session_handle,  const char *ta_id,
 }
 EXPORT_SYMBOL(dal_create_session);
 
+/**
+ * dal_send_and_receive - send and receive data to/from ta
+ *
+ * @session_handle: session handle
+ * @command_id: command id
+ * @input: message to be sent
+ * @input_len: sent message size
+ * @output: output param to hold a pointer to the buffer which
+ *          will contain the received message.
+ *          This buffer is allocated by Beihai and freed by the user
+ * @output_len: input and output param -
+ *              - input: the expected maximum length of the received message
+ *              - output: size of the received message
+ * @response_code: output param to hold the return value from the applet
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 int dal_send_and_receive(u64 session_handle, int command_id, const u8 *input,
 			 size_t input_len, u8 **output, size_t *output_len,
 			 int *response_code)
@@ -316,6 +406,15 @@ int dal_send_and_receive(u64 session_handle, int command_id, const u8 *input,
 }
 EXPORT_SYMBOL(dal_send_and_receive);
 
+/**
+ * dal_close_session - close ta session
+ *
+ * @session_handle: session handle
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 int dal_close_session(u64 session_handle)
 {
 	int ret;
@@ -334,15 +433,17 @@ int dal_close_session(u64 session_handle)
 EXPORT_SYMBOL(dal_close_session);
 
 /**
- * dal_set_exclusive_access - set given uuid exclusive
+ * dal_set_ta_exclusive_access - set client to be owner of the ta,
+ *                               so no one else (especially user space client)
+ *                               will be able to open session to it
  *
- * @ta_id: trusted applet id
+ * @ta_id: trusted application (ta) id
  *
- * Return:
- *    DAL_KDI_SUCCESS
- *    DAL_KDI_STATUS_INTERNAL_ERROR
- *    DAL_KDI_STATUS_TA_EXIST
- *    DAL_KDI_STATUS_NON_EXCLUSIVENESS_TA;
+ * Return: 0 on success
+ *         -ENODEV when the device can't be found
+ *         -ENOMEM on memory allocation failure
+ *         -EPERM when ta is owned by another client
+ *         -EEXIST when ta is already owned by current client
  */
 int dal_set_ta_exclusive_access(uuid_be ta_id)
 {
@@ -373,11 +474,14 @@ unlock:
 EXPORT_SYMBOL(dal_set_ta_exclusive_access);
 
 /**
- * dal_unset_ta_exclusive_access - remove exclusiveness from uuid
+ * dal_unset_ta_exclusive_access - unset client from owning ta
  *
- * @ta_id: trusted applet id
+ * @ta_id: trusted application (ta) id
  *
- * Return:
+ * Return: 0 on success
+ *         -ENODEV when the device can't be found
+ *         -ENOENT when ta isn't found in exclusiveness ta list
+ *         -EPERM when ta is owned by another client
  */
 int dal_unset_ta_exclusive_access(uuid_be ta_id)
 {
@@ -415,6 +519,14 @@ EXPORT_SYMBOL(dal_unset_ta_exclusive_access);
 		    KDI_MINOR_VER "." \
 		    KDI_HOTFIX_VER
 
+/**
+ * dal_get_version_info - return DAL driver version
+ *
+ * @version_info: output param to hold DAL driver version information
+ *
+ * Return: 0 on success
+ *         -EINVAL on incorrect input
+ */
 int dal_get_version_info(struct dal_version_info *version_info)
 {
 	if (!version_info)
@@ -427,6 +539,18 @@ int dal_get_version_info(struct dal_version_info *version_info)
 }
 EXPORT_SYMBOL(dal_get_version_info);
 
+/**
+ * kdi_add_dev - add new dal device (one of dal_dev_type)
+ *
+ * @dev: device object which is associated with dal device
+ * @class_intf: class interface
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ *
+ * When new dal device is added, a new client is created for
+ * this device in kernel space interface
+ */
 static int kdi_add_dev(struct device *dev,
 		       struct class_interface *class_intf)
 {
@@ -440,6 +564,15 @@ static int kdi_add_dev(struct device *dev,
 	return ret;
 }
 
+/**
+ * kdi_rm_dev - rm dal device (one of dal_dev_type)
+ *
+ * @dev: device object which is associated with dal device
+ * @class_intf: class interface
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static void kdi_rm_dev(struct device *dev,
 		       struct class_interface *class_intf)
 {
@@ -451,11 +584,20 @@ static void kdi_rm_dev(struct device *dev,
 	mutex_unlock(&ddev->context_lock);
 }
 
+/*
+ * kdi_interface handles addition/removal of dal devices
+ */
 static struct class_interface kdi_interface __refdata = {
 	.add_dev    = kdi_add_dev,
 	.remove_dev = kdi_rm_dev,
 };
 
+/**
+ * dal_kdi_init - initialize dal kdi
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 int dal_kdi_init(void)
 {
 	int ret;
@@ -465,7 +607,7 @@ int dal_kdi_init(void)
 	kdi_interface.class = dal_class;
 	ret = class_interface_register(&kdi_interface);
 	if (ret) {
-		pr_err("failed reister class interface = %d\n", ret);
+		pr_err("failed to register class interface = %d\n", ret);
 		goto err;
 	}
 
@@ -476,6 +618,9 @@ err:
 	return ret;
 }
 
+/**
+ * dal_kdi_exit - dal kdi exit function
+ */
 void dal_kdi_exit(void)
 {
 	bhp_deinit_internal();

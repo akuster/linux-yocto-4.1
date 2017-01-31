@@ -70,17 +70,41 @@
 
 static const uuid_be spooler_ta_id = SPOOLER_UUID;
 
+/**
+ * struct dal_access_policy - ta access information node
+ *
+ * @list: link in access list
+ * @ta_id: trusted application id
+ * @owner: owner of ta
+ */
 struct dal_access_policy {
 	struct list_head list;
 	uuid_be ta_id;
 	void *owner;
 };
 
+/**
+ * dal_dev_get_access_list - get access list of dal device
+ *
+ * @ddev: dal device
+ *
+ * Return: pointer to access list
+ */
 static struct list_head *dal_dev_get_access_list(struct dal_device *ddev)
 {
 	return dev_get_drvdata(&ddev->dev);
 }
 
+/**
+ * dal_access_policy_alloc - allocate memory and initialize access list node
+ *
+ * @ta_id: trusted application id
+ * @owner: owner of ta
+ *
+ * Return: pointer to the new initialized access list node
+ *
+ * Locking: called under "kdi_lock" lock
+ */
 static struct dal_access_policy *
 dal_access_policy_alloc(uuid_be ta_id, void *owner)
 {
@@ -97,6 +121,15 @@ dal_access_policy_alloc(uuid_be ta_id, void *owner)
 	return e;
 }
 
+/**
+ * dal_access_policy_find - find ta id in access list
+ *
+ * @access_list: access list
+ * @ta_id: trusted application id
+ *
+ * Return: pointer to access list node of ta
+ *         NULL if ta is not found in access list
+ */
 static struct dal_access_policy *
 dal_access_policy_find(struct list_head *access_list, uuid_be ta_id)
 {
@@ -109,6 +142,20 @@ dal_access_policy_find(struct list_head *access_list, uuid_be ta_id)
 	return NULL;
 }
 
+/**
+ * dal_access_policy_add - add access information of ta and its owner
+ *
+ * @ddev: dal device
+ * @ta_id: trusted application id
+ * @owner: owner of ta
+ *
+ * Return: 0 on success
+ *         -ENOMEM on memory allocation failure
+ *         -EPERM when ta already has another owner
+ *         -EEXIST when access information already exists (same ta and owner)
+ *
+ * Locking: called under "kdi_lock" lock
+ */
 int dal_access_policy_add(struct dal_device *ddev, uuid_be ta_id, void *owner)
 {
 	struct list_head *access_list = dal_dev_get_access_list(ddev);
@@ -130,6 +177,19 @@ int dal_access_policy_add(struct dal_device *ddev, uuid_be ta_id, void *owner)
 	return 0;
 }
 
+/**
+ * dal_access_policy_remove - remove access information of ta and its owner
+ *
+ * @ddev: dal device
+ * @ta_id: trusted application id
+ * @owner: owner of ta
+ *
+ * Return: 0 on success
+ *         -ENOENT when ta isn't found in access list
+ *         -EPERM when ta has another owner
+ *
+ * Locking: called under "kdi_lock" lock
+ */
 int dal_access_policy_remove(struct dal_device *ddev,
 			     uuid_be ta_id, void *owner)
 {
@@ -148,6 +208,18 @@ int dal_access_policy_remove(struct dal_device *ddev,
 	return 0;
 }
 
+/**
+ * dal_access_policy_allowed - check if owner is allowed to use ta
+ *
+ * @ddev: dal device
+ * @ta_id: trusted application id
+ * @owner: owner
+ *
+ * Return: 0 on success
+ *         -EPERM when owner is not allowed to use ta
+ *
+ * Locking: called under "ddev->write_lock" lock
+ */
 int dal_access_policy_allowed(struct dal_device *ddev,
 			      uuid_be ta_id, void *owner)
 {
@@ -164,6 +236,11 @@ int dal_access_policy_allowed(struct dal_device *ddev,
 	return 0;
 }
 
+/**
+ * dal_access_list_free - free memory of access list
+ *
+ * @ddev: dal device
+ */
 void dal_access_list_free(struct dal_device *ddev)
 {
 	struct list_head *access_list = dal_dev_get_access_list(ddev);
@@ -181,6 +258,18 @@ void dal_access_list_free(struct dal_device *ddev)
 	dev_set_drvdata(&ddev->dev, NULL);
 }
 
+/**
+ * dal_access_list_init - initialize an empty access list
+ *
+ * @ddev: dal device
+ *
+ * Note: Add spooler ta id with blank owner to the list.
+ * This will prevent any user from setting itself owner of the spooler,
+ * which will block others from openning session to it.
+ *
+ * Return: 0 on success
+ *         -ENOMEM on memory allocation failure
+ */
 int dal_access_list_init(struct dal_device *ddev)
 {
 	struct list_head *access_list;

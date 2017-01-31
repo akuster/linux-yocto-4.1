@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -67,10 +67,10 @@
 #define DAL_VERSION_LEN             32
 
 /**
- * struct dal_version_info -
+ * struct dal_version_info - dal version
  *
- * @version: current dal version.
- * @reserved: reserved bytes for future use.
+ * @version: current dal version
+ * @reserved: reserved bytes for future use
  */
 struct dal_version_info {
 	char version[DAL_VERSION_LEN];
@@ -97,55 +97,16 @@ struct dal_version_info {
 
 #define KDI_INIT_FLAGS_NONE       0
 
-/**
- * dal_get_version_info - return DAL version.
- *
- * @version_info:   pointer to KDI version struct
- *
- * Return: 0 for success fail otherwise
- */
 int dal_get_version_info(struct dal_version_info *version_info);
 
-/**
- * dal_create_session - will open session to an applet
- *
- * @session_handle:    pointer to get the session handle
- * @app_id:            applet id
- * @acp_pkg:           applet acp data
- * @acp_pkg_len:       applet acp data size
- * @init_param:		   applet init param
- * @init_param_len:    applet init param size
- *
- * Return: 0 for success fail otherwise
- */
 int dal_create_session(u64 *session_handle, const char *app_id,
 		       const u8 *acp_pkg, size_t acp_pkg_len,
 		       const u8 *init_param, size_t init_param_len);
 
-/**
- * dal_send_and_receive - send and receive data to/from the applet
- *
- * @session_handle:    session handle
- * @command_id:        command id
- * @input:             send buffer
- * @input_len:         send buffer size
- * @output:            output buffer
- * @output_len:        outout buffer size
- * @response_code:     return code from the applet
- *
- * Return: 0 for success fail otherwise
- */
 int dal_send_and_receive(u64 session_handle, int command_id, const u8 *input,
 			 size_t input_len, u8 **output, size_t *output_len,
 			 int *response_code);
 
-/**
- * dal_close_session - close an open applet session
- *
- * @session_handle:    session handle
- *
- * Return: 0 for success fail otherwise
- */
 int dal_close_session(u64 session_handle);
 
 int dal_set_ta_exclusive_access(uuid_be ta_id);
