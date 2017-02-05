@@ -67,7 +67,11 @@
 
 static unsigned int init_state = DEINITED;
 static u64 sequence_number = MSG_SEQ_START_NUMBER;
-static struct bh_connection_item connections[MAX_CONNECTIONS];
+/**
+ * dal device response records list (array of list per dal device)
+ * represents connection to dal fw client
+ */
+static struct list_head dal_dev_rr_list[MAX_CONNECTIONS];
 
 /*
  * increment_seq_number():
@@ -146,8 +150,7 @@ u64 rrmap_add(int conn_idx, struct bh_response_record *rr)
 	rrmap_info->seq = seq;
 	rrmap_info->rr = rr;
 
-	list_add_tail(&rrmap_info->link,
-		      &connections[conn_idx].rr_map_list_header);
+	list_add_tail(&rrmap_info->link, &dal_dev_rr_list[conn_idx]);
 
 	return rrmap_info->seq;
 }
@@ -165,9 +168,7 @@ static struct bh_response_record *rrmap_remove(int conn_idx, u64 seq,
 	struct RR_MAP_INFO *rrmap_info;
 	struct bh_response_record *rr = NULL;
 
-	rrmap_info =
-		rrmap_find_by_addr(&connections[conn_idx].rr_map_list_header,
-				   seq);
+	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
 
 	if (rrmap_info != NULL) {
 		rr = rrmap_info->rr;
@@ -185,9 +186,7 @@ static struct bh_response_record *addr2record(int conn_idx, u64 seq)
 	struct bh_response_record *rr = NULL;
 	struct RR_MAP_INFO *rrmap_info;
 
-	rrmap_info =
-		rrmap_find_by_addr(&connections[conn_idx].rr_map_list_header,
-				   seq);
+	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
 
 	if (rrmap_info != NULL)
 		rr = rrmap_info->rr;
@@ -210,9 +209,7 @@ struct bh_response_record *session_enter(int conn_idx, u64 seq,
 
 	mutex_enter(connections[conn_idx].bhm_rrmap);
 
-	rrmap_info =
-		rrmap_find_by_addr(&connections[conn_idx].rr_map_list_header,
-				   seq);
+	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
 
 	if (rrmap_info) {
 		if (rrmap_info->rr->is_session && !rrmap_info->rr->killed) {
@@ -286,30 +283,13 @@ void session_close(int conn_idx, struct bh_response_record *session,
 static void session_kill(int conn_idx, struct bh_response_record *session,
 			 u64 seq, bool is_caller_svm_recv_thread)
 {
-	bool close_vm_conn = false;
-
 	mutex_enter(connections[conn_idx].bhm_rrmap);
 	session->killed = true;
 	if (session->count == 0) {
 		rrmap_remove(conn_idx, seq, true);
 		destroy_session(session);
-		if (conn_idx >= CONN_IDX_SVM)
-			close_vm_conn = true;
 	}
 	mutex_exit(connections[conn_idx].bhm_rrmap);
-
-	/* decrease the VM connection counter of this session:
-	 * only for connected SVM
-	 */
-	if (close_vm_conn) {
-		if (is_caller_svm_recv_thread) {
-			mutex_enter(connections[conn_idx].lock);
-			if (connections[conn_idx].conn_count != 1)
-				connections[conn_idx].conn_count--;
-
-			mutex_exit(connections[conn_idx].lock);
-		}
-	}
 }
 
 bool bhp_is_initialized(void)
@@ -481,26 +461,15 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 
 static void bh_do_connect(int conn_idx)
 {
-	struct bh_connection_item *conn = &connections[conn_idx];
-
-	conn->handle = 0;
-	conn->conn_count = 0;
-	INIT_LIST_HEAD(&conn->rr_map_list_header);
-	memset(&conn->sdid, 0, sizeof(uuid_be));
+	INIT_LIST_HEAD(&dal_dev_rr_list[conn_idx]);
 }
 
 static int bh_do_disconnect(int conn_idx)
 {
 	struct list_head *pos, *tmp;
 	struct RR_MAP_INFO *rrmap_info;
-	struct bh_connection_item *conn;
 
-	conn = &connections[conn_idx];
-
-	conn->conn_count = 0;
-	conn->handle = 0;
-
-	list_for_each_safe(pos, tmp, &conn->rr_map_list_header) {
+	list_for_each_safe(pos, tmp, &dal_dev_rr_list[conn_idx]) {
 		rrmap_info = list_entry(pos, struct RR_MAP_INFO, link);
 		if (rrmap_info) {
 			list_del(pos);
@@ -508,8 +477,7 @@ static int bh_do_disconnect(int conn_idx)
 		}
 	}
 
-	INIT_LIST_HEAD(&conn->rr_map_list_header);
-	memset(&conn->sdid, 0, sizeof(uuid_be));
+	INIT_LIST_HEAD(&dal_dev_rr_list[conn_idx]);
 
 	return 0;
 }
@@ -518,11 +486,8 @@ static void bh_connections_init(void)
 {
 	int i;
 
-	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++) {
-		connections[i].conn_count = 0;
-		connections[i].handle = 0;
-		INIT_LIST_HEAD(&connections[i].rr_map_list_header);
-	}
+	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
+		INIT_LIST_HEAD(&dal_dev_rr_list[i]);
 
 	/* connect to predefined heci ports, except SVM */
 	for (i = CONN_IDX_START; i < CONN_IDX_SVM; i++)
