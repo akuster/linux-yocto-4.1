@@ -93,21 +93,6 @@ struct bh_response_record {
 	unsigned int count;
 };
 
-/** struct bh_connection_item
- *   represents a vm connection
- *
- * @handle: physical connection handle
- * @rr_map_list_header: the list
- * @conn_count: VM connection counter, only valid for VM
- * @sdid: remote the sd id it serves, only valid for VM
- */
-struct bh_connection_item {
-	unsigned int handle;
-	struct list_head rr_map_list_header;
-	unsigned int conn_count;
-	uuid_be sdid;
-};
-
 /* maximum concurrent activities on one session */
 #define MAX_SESSION_LIMIT 20
 
