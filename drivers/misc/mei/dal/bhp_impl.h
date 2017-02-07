@@ -106,17 +106,18 @@ struct bh_response_record {
  * enum bhp_connection_index -
  *   represents a connection index to the different clients
  *
- * @CONN_IDX_IVM:
- * @CONN_IDX_SDM:
- * @CONN_IDX_LAUNCHER:
- * @CONN_IDX_SVM:
+ * @CONN_IDX_IVM: Intel/Issuer Virtual Machine
+ * @CONN_IDX_SDM: Security Domain Manager
+ * @CONN_IDX_LAUNCHER: Run Time Manager (Launcher)
+ *
+ * @MAX_CONNECTIONS: max connection idx
  */
 enum bhp_connection_index {
 	CONN_IDX_START = 0,
 	CONN_IDX_IVM = 0,
 	CONN_IDX_SDM = 1,
 	CONN_IDX_LAUNCHER = 2,
-	CONN_IDX_SVM = 3,
+
 	MAX_CONNECTIONS
 };
 
