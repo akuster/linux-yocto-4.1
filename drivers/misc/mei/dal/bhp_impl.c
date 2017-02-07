@@ -170,7 +170,7 @@ static struct bh_response_record *rrmap_remove(int conn_idx, u64 seq,
 
 	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
 
-	if (rrmap_info != NULL) {
+	if (rrmap_info) {
 		rr = rrmap_info->rr;
 		if (!rr->is_session || remove_record) {
 			list_del_init(&rrmap_info->link);
@@ -188,7 +188,7 @@ static struct bh_response_record *addr2record(int conn_idx, u64 seq)
 
 	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
 
-	if (rrmap_info != NULL)
+	if (rrmap_info)
 		rr = rrmap_info->rr;
 
 	return rr;
