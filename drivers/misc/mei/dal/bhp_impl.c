@@ -281,7 +281,7 @@ void session_close(int conn_idx, struct bh_response_record *session,
 }
 
 static void session_kill(int conn_idx, struct bh_response_record *session,
-			 u64 seq, bool is_caller_svm_recv_thread)
+			 u64 seq)
 {
 	mutex_enter(connections[conn_idx].bhm_rrmap);
 	session->killed = true;
@@ -446,7 +446,7 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 		/* set killed flag before wake up send_wait thread */
 		if (session_killed) {
 			rr->killed = true;
-			session_kill(conn_idx, rr, head->seq, true);
+			session_kill(conn_idx, rr, head->seq);
 		}
 
 	} else {
@@ -489,8 +489,7 @@ static void bh_connections_init(void)
 	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
 		INIT_LIST_HEAD(&dal_dev_rr_list[i]);
 
-	/* connect to predefined heci ports, except SVM */
-	for (i = CONN_IDX_START; i < CONN_IDX_SVM; i++)
+	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
 		bh_do_connect(i);
 }
 
