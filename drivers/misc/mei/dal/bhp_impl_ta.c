@@ -470,10 +470,8 @@ int bhp_open_ta_session(u64 *session, const char *app_id,
 	if (ret)
 		return ret;
 
-	/* 1.2: get corresponding vm conn_idx */
-	ret = bh_do_open_vm(sdid, &conn_idx, BHP_OPEN_VM_NORMAL_MODE);
-	if (ret)
-		return ret;
+	/* 1.2: vm conn_idx is IVM dal FW client */
+	conn_idx = CONN_IDX_IVM;
 
 	/* 2.1: check whether the ta pkg existed in VM or not */
 	ret = bh_proxy_listJTAPackages(conn_idx, &count, &app_ids);

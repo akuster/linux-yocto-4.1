@@ -154,9 +154,6 @@ void session_close(int conn_idx, struct bh_response_record *session,
 int bh_request(int conn_idx, void *cmd, unsigned int clen,
 	       const void *data, unsigned int dlen, u64 seq);
 
-/* open vm connection for sdid and increase vm connection counter by 1 */
-int bh_do_open_vm(uuid_be sdid, int *conn_idx, int mode);
-
 /* returns hdr if msg is cmd hdr, otherwise returns NULL */
 const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len);
 

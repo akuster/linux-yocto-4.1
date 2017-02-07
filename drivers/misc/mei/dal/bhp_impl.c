@@ -350,15 +350,6 @@ static int bh_transport_send(unsigned int handle, const void *buffer,
 	return 0;
 }
 
-int bh_do_open_vm(uuid_be sdid, int *conn_idx, int mode)
-{
-	if (!conn_idx)
-		return -EINVAL;
-
-	*conn_idx = CONN_IDX_IVM;
-	return 0;
-}
-
 static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
 		const void *data, unsigned int dlen, u64 seq)
 {
@@ -459,11 +450,6 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 	return ret;
 }
 
-static void bh_do_connect(int conn_idx)
-{
-	INIT_LIST_HEAD(&dal_dev_rr_list[conn_idx]);
-}
-
 static int bh_do_disconnect(int conn_idx)
 {
 	struct list_head *pos, *tmp;
@@ -488,9 +474,6 @@ static void bh_connections_init(void)
 
 	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
 		INIT_LIST_HEAD(&dal_dev_rr_list[i]);
-
-	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
-		bh_do_connect(i);
 }
 
 static void bh_connections_deinit(void)
