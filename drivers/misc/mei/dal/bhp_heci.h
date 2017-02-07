@@ -167,14 +167,6 @@ struct bhp_check_svl_ta_blocked_state_cmd {
 	uuid_be taid;
 };
 
-struct bhp_get_sd_by_ta_cmd {
-	uuid_be taid;
-};
-
-struct bhp_get_sd_by_ta_response {
-	uuid_be sdid;
-};
-
 struct bhp_snr_response {
 	/* field response comes from java BIG endian */
 	__be32 response;

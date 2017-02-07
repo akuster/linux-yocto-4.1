@@ -191,47 +191,6 @@ session_enter_vm(u64 seq, int *conn_idx, int lock_session)
 	return rr;
 }
 
-static int bh_proxy_get_sd_by_ta(uuid_be taid, uuid_be *sdid)
-{
-	int ret;
-	char cmdbuf[CMDBUF_SIZE];
-	struct bhp_command_header *h = (struct bhp_command_header *)cmdbuf;
-	struct bhp_get_sd_by_ta_cmd *cmd =
-			(struct bhp_get_sd_by_ta_cmd *)h->cmd;
-	struct bh_response_record rr;
-
-	memset(cmdbuf, 0, sizeof(cmdbuf));
-	memset(&rr, 0, sizeof(rr));
-
-	if (!sdid)
-		return -EINVAL;
-
-	h->id = BHP_CMD_GET_SD_BY_TA;
-	cmd->taid = taid;
-
-	ret = bh_request(CONN_IDX_SDM, h, sizeof(*h) + sizeof(*cmd), NULL,
-			 0, rrmap_add(CONN_IDX_SDM, &rr));
-
-	if (!ret)
-		ret = rr.code;
-
-	if (ret)
-		goto cleanup;
-
-	if (rr.buffer && rr.length ==
-			sizeof(struct bhp_get_sd_by_ta_response)) {
-		struct bhp_get_sd_by_ta_response *resp =
-				(struct bhp_get_sd_by_ta_response *)rr.buffer;
-		*sdid = resp->sdid;
-	} else
-		ret = -EBADMSG;
-
-cleanup:
-	kfree(rr.buffer);
-
-	return ret;
-}
-
 static int bh_proxy_check_svl_ta_blocked_state(uuid_be taid)
 {
 	int ret;
@@ -432,7 +391,6 @@ int bhp_open_ta_session(u64 *session, const char *app_id,
 	int ret;
 	uuid_be ta_id;
 	int conn_idx = 0;
-	uuid_be sdid;
 	int ta_existed = 0;
 	int count = 0;
 	uuid_be *app_ids = NULL;
@@ -452,16 +410,11 @@ int bhp_open_ta_session(u64 *session, const char *app_id,
 
 	*session = 0;
 
-	/* 1.1: get the TA's sdid */
-	ret = bh_proxy_get_sd_by_ta(ta_id, &sdid);
-	if (ret)
-		return ret;
-
 	ret = bh_proxy_check_svl_ta_blocked_state(ta_id);
 	if (ret)
 		return ret;
 
-	/* 1.2: vm conn_idx is IVM dal FW client */
+	/* 1: vm conn_idx is IVM dal FW client */
 	conn_idx = CONN_IDX_IVM;
 
 	/* 2.1: check whether the ta pkg existed in VM or not */
