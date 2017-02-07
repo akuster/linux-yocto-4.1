@@ -449,7 +449,7 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 	return ret;
 }
 
-static int bh_do_disconnect(int conn_idx)
+static int free_rr_list(int conn_idx)
 {
 	struct list_head *pos, *tmp;
 	struct RR_MAP_INFO *rrmap_info;
@@ -480,7 +480,7 @@ static void bh_connections_deinit(void)
 	int i;
 
 	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
-		bh_do_disconnect(i);
+		free_rr_list(i);
 }
 
 #define MAX_RETRY_COUNT 3
