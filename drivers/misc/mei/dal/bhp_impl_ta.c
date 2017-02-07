@@ -175,12 +175,6 @@ static int bh_cmd(int conn_idx,
 	return ret;
 }
 
-
-enum bhp_vm_mode {
-	BHP_OPEN_VM_QUERY_MODE = 0,
-	BHP_OPEN_VM_NORMAL_MODE = 1
-};
-
 /* try to session_enter for IVM, then SVM */
 static struct bh_response_record *
 session_enter_vm(u64 seq, int *conn_idx, int lock_session)
