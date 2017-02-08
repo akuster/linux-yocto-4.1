@@ -145,7 +145,7 @@ u64 rrmap_add(int conn_idx, struct bh_response_record *rr)
 	/* TODO: check if malloc succeeded: need to refactor the usage
 	 * of rrmap_add() to check and handle errors
 	 */
-	rrmap_info = kzalloc(sizeof(struct RR_MAP_INFO), GFP_KERNEL);
+	rrmap_info = kzalloc(sizeof(*rrmap_info), GFP_KERNEL);
 
 	rrmap_info->seq = seq;
 	rrmap_info->rr = rr;
@@ -362,7 +362,7 @@ static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
 
 	mutex_enter(connections[conn_idx].bhm_send);
 
-	if (clen < sizeof(struct bhp_command_header) || !cmd || !rr)
+	if (clen < sizeof(*h) || !cmd || !rr)
 		return -EINVAL;
 
 	rr->buffer = NULL;
@@ -396,8 +396,7 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 	struct bh_response_record *rr = NULL;
 	int session_killed;
 
-	ret = bh_transport_recv(conn_idx, head,
-				sizeof(struct bhp_response_header));
+	ret = bh_transport_recv(conn_idx, head, sizeof(*head));
 	if (ret)
 		return ret;
 
@@ -409,8 +408,8 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 	/* verify rr */
 	rr = rrmap_remove(conn_idx, head->seq, false);
 
-	if (head->h.length > sizeof(struct bhp_response_header)) {
-		dlen = head->h.length - sizeof(struct bhp_response_header);
+	if (head->h.length > sizeof(*head)) {
+		dlen = head->h.length - sizeof(*head);
 		data = kzalloc(dlen, GFP_KERNEL);
 		ret = bh_transport_recv(conn_idx, data, dlen);
 		if (!ret && !data)
