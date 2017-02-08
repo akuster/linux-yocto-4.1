@@ -255,11 +255,11 @@ int acp_load_ta_pack(struct pack_reader *pr, char **ta_pack)
 static int acp_load_ins_jta_prop_head(struct pack_reader *pr,
 				      struct ac_ins_jta_prop_header **head)
 {
-	if (!pr_is_safe_to_read(pr, sizeof(struct ac_ins_jta_prop_header)))
+	if (!pr_is_safe_to_read(pr, sizeof(**head)))
 		return -EINVAL;
 
 	*head = (struct ac_ins_jta_prop_header *)pr->cur;
-	return pr_align_move(pr, sizeof(struct ac_ins_jta_prop_header));
+	return pr_align_move(pr, sizeof(**head));
 }
 
 int acp_load_ins_jta_prop(struct pack_reader *pr, struct ac_ins_jta_prop *pack)
@@ -293,11 +293,11 @@ out:
 static int acp_load_ins_jta_head(struct pack_reader *pr,
 				 struct ac_ins_ta_header **head)
 {
-	if (!pr_is_safe_to_read(pr, sizeof(struct ac_ins_ta_header)))
+	if (!pr_is_safe_to_read(pr, sizeof(**head)))
 		return -EINVAL;
 
 	*head = (struct ac_ins_ta_header *)pr->cur;
-	return pr_align_move(pr, sizeof(struct ac_ins_ta_header));
+	return pr_align_move(pr, sizeof(**head));
 }
 
 int acp_load_ins_jta(struct pack_reader *pr, struct ac_ins_jta_pack *pack)
@@ -315,9 +315,9 @@ int acp_load_ins_jta(struct pack_reader *pr, struct ac_ins_jta_pack *pack)
 
 int acp_load_pack_head(struct pack_reader *pr, struct ac_pack_header **head)
 {
-	if (!pr_is_safe_to_read(pr, sizeof(struct ac_pack_header)))
+	if (!pr_is_safe_to_read(pr, sizeof(**head)))
 		return -EINVAL;
 
 	*head = (struct ac_pack_header *)pr->cur;
-	return pr_align_move(pr, sizeof(struct ac_pack_header));
+	return pr_align_move(pr, sizeof(**head));
 }

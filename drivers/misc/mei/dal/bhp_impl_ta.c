@@ -152,8 +152,7 @@ const uuid_be *bh_open_session_ta_id(const struct bhp_command_header *hdr,
 {
 	struct bhp_open_jtasession_cmd *open_cmd;
 
-	if (count < sizeof(struct bhp_command_header) +
-			sizeof(struct bhp_open_jtasession_cmd))
+	if (count < sizeof(*hdr) + sizeof(*open_cmd))
 		return NULL;
 
 	open_cmd = (struct bhp_open_jtasession_cmd *)hdr->cmd;
@@ -253,8 +252,7 @@ static int bh_proxy_check_svl_ta_blocked_state(uuid_be taid)
 
 	h->id = BHP_CMD_CHECK_SVL_TA_BLOCKED_STATE;
 	cmd->taid = taid;
-	memcpy(&cmd->taid, &taid,
-	       sizeof(struct bhp_check_svl_ta_blocked_state_cmd));
+	memcpy(&cmd->taid, &taid, sizeof(*cmd));
 
 	ret = bh_cmd(CONN_IDX_SDM, h, sizeof(*h) + sizeof(*cmd), NULL,
 		     0, rrmap_add(CONN_IDX_SDM, &rr), &rr);
@@ -307,8 +305,7 @@ static int bh_proxy_listJTAPackages(int conn_idx, int *count,
 		goto out;
 	}
 
-	if (rr.length != sizeof(uuid_be) * resp->count +
-			sizeof(struct bhp_list_ta_packages_response)) {
+	if (rr.length != sizeof(uuid_be) * resp->count + sizeof(*resp)) {
 		ret = -EBADMSG;
 		goto out;
 	}
@@ -569,7 +566,7 @@ int bhp_send_and_recv(const u64 handle, int command_id,
 		if (response_code)
 			*response_code = be32_to_cpu(resp->response);
 
-		len = rr->length - sizeof(struct bhp_snr_response);
+		len = rr->length - sizeof(*resp);
 
 		if (*output_length < len) {
 			ret = -EMSGSIZE;
@@ -658,7 +655,7 @@ void bh_prep_access_denied_response(const char *cmd,
 	struct bhp_command_header *cmd_hdr = (struct bhp_command_header *)cmd;
 
 	memcpy(res->h.magic, BHP_MSG_RESPONSE_MAGIC, BHP_MSG_MAGIC_LENGTH);
-	res->h.length = sizeof(struct bhp_response_header);
+	res->h.length = sizeof(*res);
 	res->code = BHE_OPERATION_NOT_PERMITTED;
 	res->seq = cmd_hdr->seq;
 }
