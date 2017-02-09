@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -76,6 +76,16 @@
 
 #define PR_ALIGN 4
 
+/**
+ * pr_init - init pack reader
+ *
+ * @pr: pack reader
+ * @data: acp file content (without CSS header)
+ * @n: acp file size (without CSS header)
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 int pr_init(struct pack_reader *pr, const char *data, unsigned int n)
 {
 	/* check integer overflow */
@@ -88,6 +98,18 @@ int pr_init(struct pack_reader *pr, const char *data, unsigned int n)
 	return 0;
 }
 
+/**
+ * pr_8b_align_move - update pack reader cur pointer after reading n_move bytes
+ *                    Leave cur aligned to 8 bytes.
+ *                    (e.g. when n_move is 3, increase cur by 8)
+ *
+ * @pr: pack reader
+ * @n_move: number of bytes to move cur pointer ahead
+ *          will be rounded up to keep cur 8 bytes aligned
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int pr_8b_align_move(struct pack_reader *pr, size_t n_move)
 {
 	unsigned long offset;
@@ -109,6 +131,18 @@ static int pr_8b_align_move(struct pack_reader *pr, size_t n_move)
 	return 0;
 }
 
+/**
+ * pr_align_move - update pack reader cur pointer after reading n_move bytes
+ *                 Leave cur aligned to 4 bytes.
+ *                 (e.g. when n_move is 1, increase cur by 4)
+ *
+ * @pr: pack reader
+ * @n_move: number of bytes to move cur pointer ahead
+ *          will be rounded up to keep cur 4 bytes aligned
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int pr_align_move(struct pack_reader *pr, size_t n_move)
 {
 	const char *new_cur = pr->cur + n_move;
@@ -130,13 +164,22 @@ static int pr_align_move(struct pack_reader *pr, size_t n_move)
 	return 0;
 }
 
+/**
+ * pr_move - update pack reader cur pointer after reading n_move bytes
+ *
+ * @pr: pack reader
+ * @n_move: number of bytes to move cur pointer ahead
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int pr_move(struct pack_reader *pr, size_t n_move)
 {
 	const char *new_cur = pr->cur + n_move;
 
 	/* integer overflow or out of acp pkg size */
 	if ((size_t)pr->cur > SIZE_MAX - n_move ||
-			new_cur > pr->head + pr->total)
+	    new_cur > pr->head + pr->total)
 		return -EINVAL;
 
 	pr->cur = new_cur;
@@ -144,6 +187,16 @@ static int pr_move(struct pack_reader *pr, size_t n_move)
 	return 0;
 }
 
+/**
+ * pr_is_safe_to_read - check whether it is safe to read more n_move
+ *                      bytes from the acp file
+ *
+ * @pr: pack reader
+ * @n_move: number of bytes to check if it is safe to read
+ *
+ * Return: true when it is safe to read more n_move bytes
+ *         false otherwise
+ */
 static bool pr_is_safe_to_read(const struct pack_reader *pr, size_t n_move)
 {
 	/* pointer overflow */
@@ -156,11 +209,29 @@ static bool pr_is_safe_to_read(const struct pack_reader *pr, size_t n_move)
 	return true;
 }
 
+/**
+ * pr_is_end - check if cur is at the end of the acp file
+ *
+ * @pr: pack reader
+ *
+ * Return: true when cur is at the end of the acp
+ *         false otherwise
+ */
 bool pr_is_end(struct pack_reader *pr)
 {
 	return (pr->cur == pr->head + pr->total);
 }
 
+/**
+ * acp_load_reasons - load list of event codes that can be
+ *                    received or posted by ta
+ *
+ * @pr: pack reader
+ * @reasons: out param to hold the list of event codes
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int acp_load_reasons(struct pack_reader *pr,
 			    struct ac_ins_reasons **reasons)
 {
@@ -183,6 +254,16 @@ static int acp_load_reasons(struct pack_reader *pr,
 	return pr_align_move(pr, len);
 }
 
+/**
+ * acp_load_taid_list - load list of ta ids which ta is allowed
+ *                      to communicate with
+ *
+ * @pr: pack reader
+ * @taid_list: out param to hold the loaded ta ids
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int acp_load_taid_list(struct pack_reader *pr,
 			      struct bh_ta_id_list **taid_list)
 {
@@ -205,6 +286,15 @@ static int acp_load_taid_list(struct pack_reader *pr,
 	return pr_align_move(pr, len);
 }
 
+/**
+ * acp_load_prop - load property from acp
+ *
+ * @pr: pack reader
+ * @prop: out param to hold the loaded property
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int acp_load_prop(struct pack_reader *pr, struct bh_prop_list **prop)
 {
 	size_t len;
@@ -226,6 +316,15 @@ static int acp_load_prop(struct pack_reader *pr, struct bh_prop_list **prop)
 	return pr_align_move(pr, len);
 }
 
+/**
+ * acp_load_ta_pack - load ta pack from acp
+ *
+ * @pr: pack reader
+ * @ta_pack: out param to hold the ta pack
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 int acp_load_ta_pack(struct pack_reader *pr, char **ta_pack)
 {
 	size_t len;
@@ -252,6 +351,15 @@ int acp_load_ta_pack(struct pack_reader *pr, char **ta_pack)
 	return pr_move(pr, len);
 }
 
+/**
+ * acp_load_ins_jta_prop_head - load ta manifest header
+ *
+ * @pr: pack reader
+ * @head: out param to hold manifest header
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int acp_load_ins_jta_prop_head(struct pack_reader *pr,
 				      struct ac_ins_jta_prop_header **head)
 {
@@ -262,6 +370,15 @@ static int acp_load_ins_jta_prop_head(struct pack_reader *pr,
 	return pr_align_move(pr, sizeof(**head));
 }
 
+/**
+ * acp_load_ins_jta_prop - load ta properties information (ta manifest)
+ *
+ * @pr: pack reader
+ * @pack: out param to hold ta manifest
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 int acp_load_ins_jta_prop(struct pack_reader *pr, struct ac_ins_jta_prop *pack)
 {
 	int ret;
@@ -287,6 +404,15 @@ int acp_load_ins_jta_prop(struct pack_reader *pr, struct ac_ins_jta_prop *pack)
 	return ret;
 }
 
+/**
+ * acp_load_ins_jta_head - load ta installation header
+ *
+ * @pr: pack reader
+ * @head: out param to hold the installation header
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int acp_load_ins_jta_head(struct pack_reader *pr,
 				 struct ac_ins_ta_header **head)
 {
@@ -297,6 +423,15 @@ static int acp_load_ins_jta_head(struct pack_reader *pr,
 	return pr_align_move(pr, sizeof(**head));
 }
 
+/**
+ * acp_load_ins_jta - load ta installation information from acp
+ *
+ * @pr: pack reader
+ * @pack: out param to hold install information
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 int acp_load_ins_jta(struct pack_reader *pr, struct ac_ins_jta_pack *pack)
 {
 	int ret;
@@ -310,6 +445,15 @@ int acp_load_ins_jta(struct pack_reader *pr, struct ac_ins_jta_pack *pack)
 	return ret;
 }
 
+/**
+ * acp_load_pack_head - load acp pack header
+ *
+ * @pr: pack reader
+ * @head: out param to hold the acp header
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 int acp_load_pack_head(struct pack_reader *pr, struct ac_pack_header **head)
 {
 	if (!pr_is_safe_to_read(pr, sizeof(**head)))
