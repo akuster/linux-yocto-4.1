@@ -63,6 +63,11 @@
 #include <linux/types.h>
 
 #define BH_MAX_PACK_HASH_LEN 32
+/**
+ * struct bh_pack_hash - ta pack hash
+ *
+ * @data: ta hash
+ */
 struct bh_pack_hash {
 	u8 data[BH_MAX_PACK_HASH_LEN];
 } __packed;

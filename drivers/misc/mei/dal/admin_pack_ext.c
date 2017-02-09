@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -63,8 +63,19 @@
 #include "bh_acp_exp.h"
 #include "bh_acp_internal.h"
 
+/**
+ * acp_load_pack - load and parse pack from acp file
+ *
+ * @raw_pack: acp file content, without the acp CSS header
+ * @size: acp file size (without CSS header)
+ * @cmd_id: command id
+ * @pack: out param to hold the loaded pack
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 static int acp_load_pack(const char *raw_pack, unsigned int size,
-			 int cmd_id, struct ac_pack *pack)
+			 unsigned int cmd_id, struct ac_pack *pack)
 {
 	int ret;
 	struct pack_reader pr;
@@ -113,6 +124,18 @@ static int acp_load_pack(const char *raw_pack, unsigned int size,
 	return ret;
 }
 
+/**
+ * acp_pload_ins_jta - load and parse ta pack from acp file
+ *
+ * Exported function in acp parser API
+ *
+ * @raw_data: acp file content
+ * @size: acp file size
+ * @pack: out param to hold the ta pack
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
 int acp_pload_ins_jta(const void *raw_data, unsigned int size,
 		      struct ac_ins_jta_pack_ext *pack)
 {

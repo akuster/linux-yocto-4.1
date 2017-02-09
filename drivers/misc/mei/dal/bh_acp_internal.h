@@ -69,11 +69,11 @@
 #define BH_ACP_CSS_HEADER_LENGTH    (128 + 520)
 
 /**
- * struct pack_reader - hold a reference of raw pack and read
- *     items with alignment support
- * @cur   : current reader position
- * @head  : buffer  head
- * @total : bytes in the buffer
+ * struct pack_reader - reading acp state
+ *
+ * @cur   : current read position
+ * @head  : acp file head
+ * @total : size of acp file
  */
 struct pack_reader {
 	const char *cur;
