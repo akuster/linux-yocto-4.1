@@ -240,7 +240,7 @@ static void dal_recv_cb(struct mei_cl_device *cldev)
 	 */
 	ret = kfifo_in(&dc->read_queue, &ddev->bh_fw_msg, len + sizeof(len));
 	if (ret < len + sizeof(len))
-		dev_err(&ddev->dev, "queue is full - MSG THROWN");
+		dev_dbg(&ddev->dev, "queue is full - MSG THROWN");
 
 	dal_dc_update_read_state(dc, len);
 
@@ -327,7 +327,7 @@ static int dal_send_error_access_denied(struct dal_client *dc)
 	ret = kfifo_in(&dc->read_queue, &len, sizeof(len));
 	ret += kfifo_in(&dc->read_queue, &res, len);
 	if (ret < len + sizeof(len)) {
-		dev_err(&ddev->dev, "queue is full - access denied MSG THROWN");
+		dev_dbg(&ddev->dev, "queue is full - MSG THROWN");
 		mutex_unlock(&ddev->context_lock);
 		return -ENOMEM;
 	}
@@ -404,7 +404,7 @@ ssize_t dal_write(struct dal_client *dc, size_t count, u64 seq)
 
 		hdr = bh_msg_cmd_hdr(dc->write_buffer, count);
 		if (!hdr) {
-			dev_err(dev, "expected cmd hdr at first fragment\n");
+			dev_dbg(dev, "expected cmd hdr at first fragment\n");
 			ret = -EINVAL;
 			goto out;
 		}

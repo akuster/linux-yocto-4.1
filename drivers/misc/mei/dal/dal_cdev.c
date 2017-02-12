@@ -114,7 +114,7 @@ static int dal_dev_release(struct inode *inode, struct file *fp)
 	struct dal_device *ddev = dc->ddev;
 
 	if (mutex_lock_interruptible(&ddev->context_lock)) {
-		dev_err(&ddev->dev, "signal interrupted");
+		dev_dbg(&ddev->dev, "signal interrupted");
 		return -ERESTARTSYS;
 	}
 
@@ -171,7 +171,7 @@ static ssize_t dal_dev_write(struct file *fp, const char __user *buff,
 	ddev = dc->ddev;
 
 	if (count > DAL_MAX_BUFFER_SIZE) {
-		dev_err(&ddev->dev, "count is too big, count = %zu\n", count);
+		dev_dbg(&ddev->dev, "count is too big, count = %zu\n", count);
 		return -EMSGSIZE;
 	}
 
