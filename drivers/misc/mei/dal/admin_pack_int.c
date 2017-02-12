@@ -268,25 +268,22 @@ int acp_load_ins_jta_prop(struct pack_reader *pr, struct ac_ins_jta_prop *pack)
 
 	ret = acp_load_ins_jta_prop_head(pr, &pack->head);
 	if (ret)
-		goto out;
+		return ret;
 
 	ret = acp_load_reasons(pr, &pack->post_reasons);
 	if (ret)
-		goto out;
+		return ret;
 
 	ret = acp_load_reasons(pr, &pack->reg_reasons);
 	if (ret)
-		goto out;
+		return ret;
 
 	ret = acp_load_prop(pr, &pack->prop);
 	if (ret)
-		goto out;
-
-	ret = acp_load_taid_list(pr, &pack->used_service_list);
-	if (ret)
 		return ret;
 
-out:
+	ret = acp_load_taid_list(pr, &pack->used_service_list);
+
 	return ret;
 }
 
