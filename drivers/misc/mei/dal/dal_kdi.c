@@ -144,14 +144,14 @@ int kdi_send(unsigned int handle, const unsigned char *buf,
 
 	dev = dal_find_dev(mei_device);
 	if (!dev) {
-		dev_err(dev, "can't find device\n");
+		dev_dbg(dev, "can't find device\n");
 		return -ENODEV;
 	}
 
 	ddev = to_dal_device(dev);
 	dc = ddev->clients[DAL_INTF_KDI];
 	if (!dc) {
-		dev_err(dev, "client is NULL\n");
+		dev_dbg(dev, "client is NULL\n");
 		ret = -EFAULT;
 		goto out;
 	}
@@ -192,7 +192,7 @@ int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count)
 	ddev = to_dal_device(dev);
 	dc = ddev->clients[DAL_INTF_KDI];
 	if (!dc) {
-		dev_err(dev, "client is NULL\n");
+		dev_dbg(dev, "client is NULL\n");
 		ret = -EFAULT;
 		goto out;
 	}
@@ -213,7 +213,7 @@ int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count)
 	}
 
 	if (len > *count) {
-		dev_err(&ddev->dev, "could not copy buffer: src size = %zd > dest size = %zd\n",
+		dev_dbg(&ddev->dev, "could not copy buffer: src size = %zd > dest size = %zd\n",
 			len, *count);
 		ret = -EMSGSIZE;
 		goto out;
@@ -249,14 +249,14 @@ static int kdi_create_session(u64 *handle, const char *jta_id,
 	 * positive and if param buffer is not exists the length must be 0
 	 */
 	if (!init_param && init_param_length != 0) {
-		pr_err("INVALID_PARAMS init_param %p init_param_length %zu",
-		       init_param, init_param_length);
+		pr_debug("INVALID_PARAMS init_param %p init_param_length %zu",
+			 init_param, init_param_length);
 		return -EINVAL;
 	}
 
 	ret = acp_pload_ins_jta(buffer, buffer_length, &pack);
 	if (ret) {
-		pr_err("acp_pload_ins_jta() return %d", ret);
+		pr_debug("acp_pload_ins_jta() return %d", ret);
 		return ret;
 	}
 
@@ -288,7 +288,7 @@ int dal_create_session(u64 *session_handle,  const char *ta_id,
 	ret = kdi_create_session(session_handle, ta_id, acp_pkg, acp_pkg_len,
 				 init_param, init_param_len);
 	if (ret)
-		pr_err("kdi_create_session failed = %d\n", ret);
+		pr_debug("kdi_create_session failed = %d\n", ret);
 
 	mutex_unlock(&kdi_lock);
 
@@ -308,7 +308,7 @@ int dal_send_and_receive(u64 session_handle, int command_id, const u8 *input,
 				(void **)output, output_len, response_code);
 
 	if (ret)
-		pr_err("bhp_send_and_recv failed with status = %d\n", ret);
+		pr_debug("bhp_send_and_recv failed with status = %d\n", ret);
 
 	mutex_unlock(&kdi_lock);
 
@@ -325,7 +325,7 @@ int dal_close_session(u64 session_handle)
 	ret = bhp_close_ta_session(session_handle);
 
 	if (ret)
-		pr_err("hp_close_ta_session failed = %d\n", ret);
+		pr_debug("hp_close_ta_session failed = %d\n", ret);
 
 	mutex_unlock(&kdi_lock);
 
@@ -355,7 +355,7 @@ int dal_set_ta_exclusive_access(uuid_be ta_id)
 
 	dev = dal_find_dev(DAL_MEI_DEVICE_IVM);
 	if (!dev) {
-		dev_err(dev, "can't find device\n");
+		dev_dbg(dev, "can't find device\n");
 		ret = -ENODEV;
 		goto unlock;
 	}
@@ -390,7 +390,7 @@ int dal_unset_ta_exclusive_access(uuid_be ta_id)
 
 	dev = dal_find_dev(DAL_MEI_DEVICE_IVM);
 	if (!dev) {
-		dev_err(dev, "can't find device\n");
+		dev_dbg(dev, "can't find device\n");
 		ret = -ENODEV;
 		goto unlock;
 	}
@@ -462,7 +462,7 @@ int dal_kdi_init(void)
 
 	ret = bhp_init_internal();
 	if (ret) {
-		pr_err("bhp_init: failed with status = 0x%x\n", ret);
+		pr_debug("bhp_init: failed with status = 0x%x\n", ret);
 		return to_kdi_err(ret);
 	}
 
