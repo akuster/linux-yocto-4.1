@@ -530,8 +530,9 @@ int bhp_send_and_recv(const u64 handle, int command_id,
 		}
 
 		*output_length = len;
-	} else
+	} else {
 		ret = -EBADMSG;
+	}
 
 out:
 	kfree(rr->buffer);
