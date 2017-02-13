@@ -206,9 +206,8 @@ int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count)
 	if (ret)
 		goto out;
 
-	if (kfifo_is_empty(&dc->read_queue)) {
+	if (kfifo_is_empty(&dc->read_queue))
 		goto out;
-	}
 
 	ret = kfifo_out(&dc->read_queue, &len, sizeof(len));
 	if (ret != sizeof(len)) {
