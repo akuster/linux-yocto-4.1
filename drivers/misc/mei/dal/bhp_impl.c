@@ -67,16 +67,18 @@
 
 static unsigned int init_state = DEINITED;
 static u64 sequence_number = MSG_SEQ_START_NUMBER;
-/**
+
+/*
  * dal device response records list (array of list per dal device)
  * represents connection to dal fw client
  */
 static struct list_head dal_dev_rr_list[MAX_CONNECTIONS];
 
-/*
- * increment_seq_number():
- * increase the shared variable sequence_number by 1 and wrap around if needed.
- * note: sequence_number is shared resource among all connections/threads.
+/**
+ * increment_sequence_number - increase the shared variable sequence_number
+ *                             by 1 and wrap around if needed
+ *
+ * Return: the updated sequence number
  */
 static u64 increment_sequence_number(void)
 {
@@ -96,6 +98,13 @@ static u64 increment_sequence_number(void)
 	return ret;
 }
 
+/**
+ * struct RR_MAP_INFO - response record information
+ *
+ * @link: link in rr_map_list of dal fw client
+ * @seq: message sequence
+ * @rr: response record
+ */
 struct RR_MAP_INFO {
 	struct list_head link;
 	u64 seq;
@@ -103,6 +112,11 @@ struct RR_MAP_INFO {
 };
 
 #if 0 /* for debug */
+/**
+ * rrmap_dump - dump response record information
+ *
+ * @rr_map_header: response record list
+ */
 static void rrmap_dump(struct list_head *rr_map_header)
 {
 	struct list_head *pos;
@@ -115,13 +129,22 @@ static void rrmap_dump(struct list_head *rr_map_header)
 		rrmap_info = list_entry(pos, struct RR_MAP_INFO, link);
 		if (rrmap_info) {
 			pr_debug("[%02x] seq: %llu, rr->addr: %llu",
-				  count, rrmap_info->seq, rrmap_info->rr->addr);
+				 count, rrmap_info->seq, rrmap_info->rr->addr);
 			count++;
 		}
 	}
 }
 #endif
 
+/**
+ * rrmap_find_by_addr - find response record by sequence
+ *
+ * @rr_map_header: response record list
+ * @seq: sequence number
+ *
+ * Return: pointer to RR_MAP_INFO if found
+ *         NULL if the response record wasn't found
+ */
 static struct RR_MAP_INFO *rrmap_find_by_addr(struct list_head *rr_map_header,
 					      u64 seq)
 {
@@ -137,6 +160,14 @@ static struct RR_MAP_INFO *rrmap_find_by_addr(struct list_head *rr_map_header,
 	return NULL;
 }
 
+/**
+ * rrmap_add - add response record to list and return the new sequence
+ *
+ * @conn_idx: fw client connection idx
+ * @rr: response record
+ *
+ * Return: sequence of the new response record
+ */
 u64 rrmap_add(int conn_idx, struct bh_response_record *rr)
 {
 	u64 seq = increment_sequence_number();
@@ -156,11 +187,19 @@ u64 rrmap_add(int conn_idx, struct bh_response_record *rr)
 }
 
 /**
+ * rrmap_remove - remove response record from list
+ *
+ * @conn_idx: fw client connection idx
+ * @seq: sequence number
+ * @remove_record: remove record flag. used to remove session records
+ *
  * in the original BHP they use a map, in the kernel we don't have a map.
  * we're using a list.
  * in BHP they simply delete an element from the map.
  * so in order to remove a record which is a session we added a parameter
- * 'remove_record'.
+ * 'remove_record'
+ *
+ * Return: pointer to the removed response record
  */
 static struct bh_response_record *rrmap_remove(int conn_idx, u64 seq,
 					       bool remove_record)
@@ -181,6 +220,15 @@ static struct bh_response_record *rrmap_remove(int conn_idx, u64 seq,
 	return rr;
 }
 
+/**
+ * addr2record - get response record by sequence number
+ *
+ * @conn_idx: fw client connection idx
+ * @seq: sequence number
+ *
+ * Return: pointer to the response record
+ *         NULL if it wasn't found
+ */
 static struct bh_response_record *addr2record(int conn_idx, u64 seq)
 {
 	struct bh_response_record *rr = NULL;
@@ -194,6 +242,11 @@ static struct bh_response_record *addr2record(int conn_idx, u64 seq)
 	return rr;
 }
 
+/**
+ * destroy_session - release session's response record memory
+ *
+ * @session: session's response record
+ */
 static void destroy_session(struct bh_response_record *session)
 {
 	if (session)
@@ -201,6 +254,15 @@ static void destroy_session(struct bh_response_record *session)
 	kfree(session);
 }
 
+/**
+ * session_enter - increase session count in response record
+ *
+ * @conn_idx: fw client connection idx
+ * @seq: sequence number
+ * @lock_session: catch session mutex flag
+ *
+ * Return: pointer to the response record
+ */
 struct bh_response_record *session_enter(int conn_idx, u64 seq,
 					 int lock_session)
 {
@@ -239,6 +301,17 @@ struct bh_response_record *session_enter(int conn_idx, u64 seq,
 	return session;
 }
 
+/**
+ * session_exit - decrease session count in response record
+ *
+ * When the session count is 0 and the session is killed,
+ * remove the response record from the list and free it
+ *
+ * @conn_idx: fw client connection idx
+ * @session: the response record
+ * @seq: sequence number
+ * @unlock_session: release session mutex flag
+ */
 void session_exit(int conn_idx, struct bh_response_record *session,
 		  u64 seq, int unlock_session)
 {
@@ -260,6 +333,17 @@ void session_exit(int conn_idx, struct bh_response_record *session,
 	mutex_exit(connections[conn_idx].bhm_rrmap);
 }
 
+/**
+ * session_close - decrease session count in response record
+ *
+ * When the session count is 0, remove the response record
+ * from the list and free it
+ *
+ * @conn_idx: fw client connection idx
+ * @session: the response record
+ * @seq: sequence number
+ * @unlock_session: release session mutex flag
+ */
 void session_close(int conn_idx, struct bh_response_record *session,
 		   u64 seq, int unlock_session)
 {
@@ -280,6 +364,16 @@ void session_close(int conn_idx, struct bh_response_record *session,
 	mutex_exit(connections[conn_idx].bhm_rrmap);
 }
 
+/**
+ * session_kill - set session killed flag
+ *
+ * When the session count is 0, remove the response record
+ * from the list and free it
+ *
+ * @conn_idx: fw client connection idx
+ * @session: the response record
+ * @seq: sequence number
+ */
 static void session_kill(int conn_idx, struct bh_response_record *session,
 			 u64 seq)
 {
@@ -292,12 +386,28 @@ static void session_kill(int conn_idx, struct bh_response_record *session,
 	mutex_exit(connections[conn_idx].bhm_rrmap);
 }
 
+/**
+ * bhp_is_initialized - check if bhp is initialized
+ *
+ * Return: true when bhp is initialized
+ *         false when bhp is not initialized
+ */
 bool bhp_is_initialized(void)
 {
 	return (READ_ONCE(init_state) == INITED);
 }
 
 static char skip_buffer[DAL_MAX_BUFFER_SIZE] = {0};
+/**
+ * bh_transport_recv - receive message from FW, using kdi callback 'kdi_recv'
+ *
+ * @handle: session handle
+ * @buffer: output buffer to hold the received message
+ * @size: output buffer size
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int bh_transport_recv(unsigned int handle, void *buffer, size_t size)
 {
 	size_t got;
@@ -327,6 +437,17 @@ static int bh_transport_recv(unsigned int handle, void *buffer, size_t size)
 	return 0;
 }
 
+/**
+ * bh_transport_send - send message to FW, using kdi callback 'kdi_send'
+ *
+ * @handle: session handle
+ * @buffer: message to send
+ * @size: message size
+ * @seq: message sequence
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int bh_transport_send(unsigned int handle, const void *buffer,
 			     unsigned int size, u64 seq)
 {
@@ -350,8 +471,21 @@ static int bh_transport_send(unsigned int handle, const void *buffer,
 	return 0;
 }
 
+/**
+ * bh_send_message - build and send command message to FW
+ *
+ * @conn_idx: fw client connection idx
+ * @cmd: command header
+ * @clen: command header length
+ * @data: command data (message content)
+ * @dlen: data length
+ * @seq: message sequence
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
-		const void *data, unsigned int dlen, u64 seq)
+			   const void *data, unsigned int dlen, u64 seq)
 {
 	int ret;
 	struct bh_response_record *rr = addr2record(conn_idx, seq);
@@ -385,6 +519,15 @@ static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
 	return ret;
 }
 
+/**
+ * bh_recv_message - receive and prosses message from FW
+ *
+ * @conn_idx: fw client connection idx
+ * @seq: output param to hold the message sequence number
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int bh_recv_message(int conn_idx, u64 *seq)
 {
 	int ret;
@@ -419,12 +562,12 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 		rr->length = dlen;
 
 		if (!ret)
-			rr->code = (int)head->code;
+			rr->code = head->code;
 		else
 			rr->code = ret;
 
-		if (head->addr)
-			rr->addr = head->addr;
+		if (head->ta_session_id)
+			rr->addr = head->ta_session_id;
 
 		session_killed = (rr->is_session &&
 				  (rr->code == BHE_WD_TIMEOUT ||
@@ -447,6 +590,13 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 	return ret;
 }
 
+/**
+ * free_rr_list - free response record list of given dal fw client
+ *
+ * @conn_idx: fw client connection idx
+ *
+ * Return: 0
+ */
 static int free_rr_list(int conn_idx)
 {
 	struct list_head *pos, *tmp;
@@ -465,6 +615,11 @@ static int free_rr_list(int conn_idx)
 	return 0;
 }
 
+/**
+ * bh_connections_init - init dal fw clients connections
+ *
+ * Init the response record list of all dal devices (dal fw clients)
+ */
 static void bh_connections_init(void)
 {
 	int i;
@@ -473,6 +628,11 @@ static void bh_connections_init(void)
 		INIT_LIST_HEAD(&dal_dev_rr_list[i]);
 }
 
+/**
+ * bh_connections_deinit - deinit dal fw clients connections
+ *
+ * Deinit the response record list of all dal devices (dal fw clients)
+ */
 static void bh_connections_deinit(void)
 {
 	int i;
@@ -482,6 +642,19 @@ static void bh_connections_deinit(void)
 }
 
 #define MAX_RETRY_COUNT 3
+/**
+ * bh_request - send request to FW and receive response back
+ *
+ * @conn_idx: fw client connection idx
+ * @cmd: command header
+ * @clen: command header length
+ * @data: command data (message content)
+ * @dlen: data length
+ * @seq: message sequence
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 int bh_request(int conn_idx, void *cmd, unsigned int clen,
 	       const void *data, unsigned int dlen, u64 seq)
 {
@@ -519,6 +692,11 @@ int bh_request(int conn_idx, void *cmd, unsigned int clen,
 	return ret;
 }
 
+/**
+ * bhp_init_internal - Beihai plugin init function
+ *
+ * Return: 0
+ */
 int bhp_init_internal(void)
 {
 	if (bhp_is_initialized())
@@ -534,6 +712,11 @@ int bhp_init_internal(void)
 	return 0;
 }
 
+/**
+ * bhp_deinit_internal - Beihai plugin deinit function
+ *
+ * Return: 0
+ */
 int bhp_deinit_internal(void)
 {
 	mutex_enter(bhm_gInit);

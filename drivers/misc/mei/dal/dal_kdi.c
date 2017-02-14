@@ -74,15 +74,12 @@
 
 static DEFINE_MUTEX(kdi_lock);
 
-#define BH_MSG_SEQUENCE_OFFSET         8
-
 static int to_kdi_err(int err)
 {
-
 	if (err)
-		pr_info("got error: %d\n", err);
+		pr_debug("got error: %d\n", err);
 
-	if (err <=0)
+	if (err <= 0)
 		return err;
 
 	/* err > 0: is error from FW */
@@ -275,12 +272,12 @@ static int kdi_create_session(u64 *handle, const char *jta_id,
 	ta_pkg_size = buffer_length - ta_pkg_size;
 
 	ret = bhp_open_ta_session(handle, jta_id, ta_pkg, ta_pkg_size,
-				     init_param, init_param_length);
+				  init_param, init_param_length);
 
 	return ret;
 }
 
-int dal_create_session(u64 *session_handle,  const char *app_id,
+int dal_create_session(u64 *session_handle,  const char *ta_id,
 		       const u8 *acp_pkg, size_t acp_pkg_len,
 		       const u8 *init_param, size_t init_param_len)
 {
@@ -288,7 +285,7 @@ int dal_create_session(u64 *session_handle,  const char *app_id,
 
 	mutex_lock(&kdi_lock);
 
-	ret = kdi_create_session(session_handle, app_id, acp_pkg, acp_pkg_len,
+	ret = kdi_create_session(session_handle, ta_id, acp_pkg, acp_pkg_len,
 				 init_param, init_param_len);
 	if (ret)
 		pr_err("kdi_create_session failed = %d\n", ret);

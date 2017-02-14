@@ -70,18 +70,17 @@
 #include "bh_acp_exp.h"
 #include "bhp_heci.h"
 
-/** struct bh_response_record
- *   represents a beihai response record
+/**
+ * struct bh_response_record - response record
  *
- * @code: the response code from firmware
- * @length: length of the response buffer
- * @buffer: the response buffer
- * @addr: remote address in firmware
- * @is_session: whether this record relates with session
- * @killed: whether this session is killed or not,
- * valid only if is_session is true
- * @count: the count of users who are using this session,
- * valid only for is_session is 1
+ * @code: response code
+ * @length: response buffer length
+ * @buffer: response buffer
+ * @addr: session id (FW address)
+ * @is_session: flag points whether this record is session response record
+ * @killed: session killed flag (relevant when is_session flag is set)
+ * @count: count of users using this session, should be 0 or 1
+ *         (relevant when is_session flag is set)
  */
 struct bh_response_record {
 	int code;
@@ -103,8 +102,9 @@ struct bh_response_record {
 # define MSG_SEQ_START_NUMBER BIT_ULL(32)
 
 /**
- * enum bhp_connection_index -
- *   represents a connection index to the different clients
+ * enum bhp_connection_index - connection index to dal fw clients
+ *
+ * @CONN_IDX_START: start idx
  *
  * @CONN_IDX_IVM: Intel/Issuer Virtual Machine
  * @CONN_IDX_SDM: Security Domain Manager
@@ -114,6 +114,7 @@ struct bh_response_record {
  */
 enum bhp_connection_index {
 	CONN_IDX_START = 0,
+
 	CONN_IDX_IVM = 0,
 	CONN_IDX_SDM = 1,
 	CONN_IDX_LAUNCHER = 2,
@@ -122,54 +123,45 @@ enum bhp_connection_index {
 };
 
 /**
- * enum bhp_state - represents the current state of bhp.
+ * enum bhp_state - current state of bhp
  *
- * @DEINITED:
- * @INITED:
+ * @DEINITED: not inited
+ * @INITED: inited
  */
 enum bhp_state {
 	DEINITED = 0,
 	INITED = 1,
 };
 
-/* whether BHP is inited or not */
 bool bhp_is_initialized(void);
 
-/* Add a rr to rrmap and return a new seq number. */
 u64 rrmap_add(int conn_idx, struct bh_response_record *rr);
 
-/* session enter with session handle seq */
 struct bh_response_record *session_enter(int conn_idx, u64 seq,
 					 int lock_session);
 
-/* session exit */
 void session_exit(int conn_idx, struct bh_response_record *session,
 		  u64 seq, int unlock_session);
 
-/* session close */
 void session_close(int conn_idx, struct bh_response_record *session,
 		   u64 seq, int unlock_session);
 
-/* send and receive one message through mei */
 int bh_request(int conn_idx, void *cmd, unsigned int clen,
 	       const void *data, unsigned int dlen, u64 seq);
 
-/* returns hdr if msg is cmd hdr, otherwise returns NULL */
 const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len);
 
-/* return error when invalid hdr */
 typedef int (*bh_filter_func)(const struct bhp_command_header *hdr,
 			      size_t count, void *ctx);
+
 int bh_filter_hdr(const struct bhp_command_header *hdr, size_t count, void *ctx,
 		  const bh_filter_func tbl[]);
-/* true when msg it is open sessio cmd */
+
 bool bh_msg_is_cmd_open_session(const struct bhp_command_header *hdr);
 
-/* retrives ta_id from the open session */
 const uuid_be *bh_open_session_ta_id(const struct bhp_command_header *hdr,
 				     size_t count);
 
-/* prepare and return response of access denied error */
 void bh_prep_access_denied_response(const char *cmd,
 				    struct bhp_response_header *res);
 

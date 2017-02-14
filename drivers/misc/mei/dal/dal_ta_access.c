@@ -72,7 +72,7 @@ static const uuid_be spooler_ta_id = SPOOLER_UUID;
 
 struct dal_access_policy {
 	struct list_head list;
-	uuid_be app_id;
+	uuid_be ta_id;
 	void *owner;
 };
 
@@ -82,7 +82,7 @@ static struct list_head *dal_dev_get_access_list(struct dal_device *ddev)
 }
 
 static struct dal_access_policy *
-dal_access_policy_alloc(uuid_be app_id, void *owner)
+dal_access_policy_alloc(uuid_be ta_id, void *owner)
 {
 	struct dal_access_policy *e;
 
@@ -91,30 +91,30 @@ dal_access_policy_alloc(uuid_be app_id, void *owner)
 		return NULL;
 
 	INIT_LIST_HEAD(&e->list);
-	e->app_id = app_id;
+	e->ta_id = ta_id;
 	e->owner = owner;
 
 	return e;
 }
 
 static struct dal_access_policy *
-dal_access_policy_find(struct list_head *access_list, uuid_be app_id)
+dal_access_policy_find(struct list_head *access_list, uuid_be ta_id)
 {
 	struct dal_access_policy *e;
 
 	list_for_each_entry(e, access_list, list) {
-		if (!uuid_be_cmp(e->app_id, app_id))
+		if (!uuid_be_cmp(e->ta_id, ta_id))
 			return e;
 	}
 	return NULL;
 }
 
-int dal_access_policy_add(struct dal_device *ddev, uuid_be app_id, void *owner)
+int dal_access_policy_add(struct dal_device *ddev, uuid_be ta_id, void *owner)
 {
 	struct list_head *access_list = dal_dev_get_access_list(ddev);
 	struct dal_access_policy *e;
 
-	e = dal_access_policy_find(access_list, app_id);
+	e = dal_access_policy_find(access_list, ta_id);
 	if (e) {
 		if (!e->owner)
 			return -EPERM;
@@ -122,7 +122,7 @@ int dal_access_policy_add(struct dal_device *ddev, uuid_be app_id, void *owner)
 		return -EEXIST;
 	}
 
-	e = dal_access_policy_alloc(app_id, owner);
+	e = dal_access_policy_alloc(ta_id, owner);
 	if (!e)
 		return -ENOMEM;
 
@@ -131,12 +131,12 @@ int dal_access_policy_add(struct dal_device *ddev, uuid_be app_id, void *owner)
 }
 
 int dal_access_policy_remove(struct dal_device *ddev,
-			     uuid_be app_id, void *owner)
+			     uuid_be ta_id, void *owner)
 {
 	struct list_head *access_list = dal_dev_get_access_list(ddev);
 	struct dal_access_policy *e;
 
-	e = dal_access_policy_find(access_list, app_id);
+	e = dal_access_policy_find(access_list, ta_id);
 	if (!e)
 		return -ENOENT;
 
@@ -149,12 +149,12 @@ int dal_access_policy_remove(struct dal_device *ddev,
 }
 
 int dal_access_policy_allowed(struct dal_device *ddev,
-			      uuid_be app_id, void *owner)
+			      uuid_be ta_id, void *owner)
 {
 	struct list_head *access_list = dal_dev_get_access_list(ddev);
 	struct dal_access_policy *e;
 
-	e = dal_access_policy_find(access_list, app_id);
+	e = dal_access_policy_find(access_list, ta_id);
 	if (!e)
 		return 0;
 
