@@ -141,12 +141,13 @@ void dal_dc_print(struct device *dev, struct dal_client *dc)
 static void dal_dc_update_read_state(struct dal_client *dc, ssize_t len)
 {
 	struct dal_device *ddev = dc->ddev;
-	struct transport_msg_header *header =
-			(struct transport_msg_header *)dc->ddev->bh_fw_msg.msg;
 
 	/* check BH msg magic, if it exists this is the header */
 	if (bh_msg_is_response(ddev->bh_fw_msg.msg, len)) {
-		dc->expected_msg_size_from_fw = header->length;
+		struct bhp_response_header *hdr =
+			(struct bhp_response_header *)dc->ddev->bh_fw_msg.msg;
+
+		dc->expected_msg_size_from_fw = hdr->h.length;
 		dev_dbg(&ddev->dev, "expected_msg_size_from_fw = %d bytes read = %zd",
 			dc->expected_msg_size_from_fw, len);
 

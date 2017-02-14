@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -57,14 +57,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
-/*
- *
- * @file  bhp_impl_ta.cpp
- * @brief This file implements Beihai Host Proxy (BHP) module TA related API.
- * @author
- * @version
- *
- */
 
 #include <linux/string.h>
 #include <linux/uuid.h>
@@ -74,6 +66,14 @@
 #include "bh_errcode.h"
 #include "bhp_impl.h"
 
+/**
+ * uuid_is_valid_hyphenless - check if uuid is valid in hyphenless format
+ *
+ * @uuid_str: uuid string
+ *
+ * Return: true when uuid is valid in hyphenless format
+ *         false when uuid is invalid
+ */
 static bool uuid_is_valid_hyphenless(const char *uuid_str)
 {
 	unsigned int i;
@@ -86,6 +86,13 @@ static bool uuid_is_valid_hyphenless(const char *uuid_str)
 	return true;
 }
 
+/**
+ * uuid_normalize_hyphenless - convert uuid from hyphenless format
+ *                             to standard format
+ *
+ * @uuid_hl: uuid string in hyphenless format
+ * @uuid_str: output param to hold uuid string in standard format
+ */
 static void uuid_normalize_hyphenless(const char *uuid_hl, char *uuid_str)
 {
 	unsigned int i;
@@ -99,6 +106,17 @@ static void uuid_normalize_hyphenless(const char *uuid_hl, char *uuid_str)
 	uuid_str[i] = '\0';
 }
 
+/**
+ * dal_uuid_be_to_bin - convert uuid string to bin
+ *
+ * Input uuid is in either hyphenless or standard format
+ *
+ * @uuid_str: uuid string
+ * @uuid: output param to hold uuid bin
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 int dal_uuid_be_to_bin(const char *uuid_str, uuid_be *uuid)
 {
 	char __uuid_str[UUID_STRING_LEN + 1];
@@ -112,7 +130,15 @@ int dal_uuid_be_to_bin(const char *uuid_str, uuid_be *uuid)
 }
 EXPORT_SYMBOL(dal_uuid_be_to_bin);
 
-/* Check for response msg */
+/**
+ * bh_msg_is_response - check if message is response
+ *
+ * @msg: message
+ * @len: message length
+ *
+ * Return: true when message is response
+ *         false otherwise
+ */
 bool bh_msg_is_response(const void *msg, size_t len)
 {
 	const struct bhp_response_header *r =  msg;
@@ -120,29 +146,61 @@ bool bh_msg_is_response(const void *msg, size_t len)
 	return (len >= sizeof(*r) && r->h.magic == BH_MSG_RESP_MAGIC);
 }
 
-/* Check for command msg */
+/**
+ * bh_msg_is_cmd - check if message is command
+ *
+ * @msg: message
+ * @len: message length
+ *
+ * Return: true when message is command
+ *         false otherwise
+ */
 bool bh_msg_is_cmd(const void *msg, size_t len)
 {
-	const struct bhp_command_header *c =  msg;
+	const struct bhp_command_header *c = msg;
 
 	return (len >= sizeof(*c) && c->h.magic == BH_MSG_CMD_MAGIC);
 }
 
+/**
+ * bh_msg_cmd_hdr - get the command header if message is command
+ *
+ * @msg: message
+ * @len: message length
+ *
+ * Return: pointer to the command header when message is command
+ *         NULL otherwise
+ */
 const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len)
 {
-	/* check that len is valid before checking the hdr MAGIC,
-	in case that len is smaller than the MAGIC size */
 	if (!bh_msg_is_cmd(msg, len))
 		return NULL;
 
 	return msg;
 }
 
+/**
+ * bh_msg_is_cmd_open_session - check if command is open session command
+ *
+ * @hdr: message header
+ *
+ * Return: true when command is open session command
+ *         false otherwise
+ */
 bool bh_msg_is_cmd_open_session(const struct bhp_command_header *hdr)
 {
 	return hdr->id == BHP_CMD_OPEN_JTASESSION;
 }
 
+/**
+ * bh_open_session_ta_id - get ta id from open session command
+ *
+ * @hdr: message header
+ * @count: message size
+ *
+ * Return: pointer to ta id when command is valid
+ *         NULL otherwise
+ */
 const uuid_be *bh_open_session_ta_id(const struct bhp_command_header *hdr,
 				     size_t count)
 {
@@ -153,9 +211,26 @@ const uuid_be *bh_open_session_ta_id(const struct bhp_command_header *hdr,
 
 	open_cmd = (struct bhp_open_jtasession_cmd *)hdr->cmd;
 
-	return &open_cmd->appid;
+	return &open_cmd->ta_id;
 }
 
+/**
+ * bh_cmd - send command to FW and receive response code back
+ *
+ * There is no need in the received buffer, just in the response code from FW.
+ * Free the received buffer immediately.
+ *
+ * @conn_idx: fw client connection idx
+ * @cmd: command header
+ * @cmd_len: command header length
+ * @data: command data (message content)
+ * @data_len: data length
+ * @seq: message sequence
+ * @rr: response record
+ *
+ * Return: 0 on success
+ *         <0 on failure
+ */
 static int bh_cmd(int conn_idx,
 		  void *cmd, unsigned int cmd_len,
 		  const void *data, unsigned int data_len,
@@ -171,7 +246,15 @@ static int bh_cmd(int conn_idx,
 	return ret;
 }
 
-/* try to session_enter for IVM, then SVM */
+/**
+ * session_enter_vm - enter session with IVM fw client
+ *
+ * @seq: sequence number
+ * @conn_idx: out param to hold fw client connection idx
+ * @lock_session: catch session mutex flag
+ *
+ * Return: pointer to the response record
+ */
 static struct bh_response_record *
 session_enter_vm(u64 seq, int *conn_idx, int lock_session)
 {
@@ -187,7 +270,20 @@ session_enter_vm(u64 seq, int *conn_idx, int lock_session)
 	return rr;
 }
 
-static int bh_proxy_check_svl_ta_blocked_state(uuid_be taid)
+/**
+ * bh_proxy_check_svl_ta_blocked_state - check if ta security version is blocked
+ *
+ * When installing a ta, a minimum security version is given,
+ * so FW will block installation of this ta from lower version.
+ * (even after the ta will be uninstalled)
+ *
+ * @ta_id: trusted application (ta) id
+ *
+ * Return: 0 when ta security version isn't blocked
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
+static int bh_proxy_check_svl_ta_blocked_state(uuid_be ta_id)
 {
 	int ret;
 	char cmdbuf[CMDBUF_SIZE];
@@ -200,8 +296,7 @@ static int bh_proxy_check_svl_ta_blocked_state(uuid_be taid)
 	memset(&rr, 0, sizeof(rr));
 
 	h->id = BHP_CMD_CHECK_SVL_TA_BLOCKED_STATE;
-	cmd->taid = taid;
-	memcpy(&cmd->taid, &taid, sizeof(*cmd));
+	cmd->ta_id = ta_id;
 
 	ret = bh_cmd(CONN_IDX_SDM, h, sizeof(*h) + sizeof(*cmd), NULL,
 		     0, rrmap_add(CONN_IDX_SDM, &rr), &rr);
@@ -211,14 +306,27 @@ static int bh_proxy_check_svl_ta_blocked_state(uuid_be taid)
 	return ret;
 }
 
-static int bh_proxy_listJTAPackages(int conn_idx, int *count,
-				    uuid_be **app_ids)
+/**
+ * bh_proxy_list_jta_packages - get list of ta packages in FW
+ *
+ * @conn_idx: fw client connection idx
+ * @count: out param to hold the count of ta packages in FW
+ * @ta_ids: out param to hold pointer to the ids of ta packages in FW
+ *           The buffer which holds the ids is allocated in this function
+ *           and freed by the caller
+ *
+ * Return: 0 when ta security version isn't blocked
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
+static int bh_proxy_list_jta_packages(int conn_idx, int *count,
+				      uuid_be **ta_ids)
 {
 	int ret;
 	char cmdbuf[CMDBUF_SIZE];
 	struct bhp_command_header *h = (struct bhp_command_header *)cmdbuf;
 	struct bh_response_record rr;
-	struct bhp_list_ta_packages_response *resp;
+	struct bhp_resp_list_ta_packages *resp;
 	uuid_be *outbuf;
 	unsigned int i;
 
@@ -228,10 +336,10 @@ static int bh_proxy_listJTAPackages(int conn_idx, int *count,
 	if (!bhp_is_initialized())
 		return -EFAULT;
 
-	if (!count || !app_ids)
+	if (!count || !ta_ids)
 		return -EINVAL;
 
-	*app_ids = NULL;
+	*ta_ids = NULL;
 	*count = 0;
 
 	h->id = BHP_CMD_LIST_TA_PACKAGES;
@@ -248,7 +356,7 @@ static int bh_proxy_listJTAPackages(int conn_idx, int *count,
 		goto out;
 	}
 
-	resp = (struct bhp_list_ta_packages_response *)rr.buffer;
+	resp = (struct bhp_resp_list_ta_packages *)rr.buffer;
 	if (!resp->count) {
 		ret = -EBADMSG;
 		goto out;
@@ -267,9 +375,9 @@ static int bh_proxy_listJTAPackages(int conn_idx, int *count,
 	}
 
 	for (i = 0; i < resp->count; i++)
-		outbuf[i] = resp->app_ids[i];
+		outbuf[i] = resp->ta_ids[i];
 
-	*app_ids = outbuf;
+	*ta_ids = outbuf;
 	*count = resp->count;
 
 out:
@@ -277,6 +385,18 @@ out:
 	return ret;
 }
 
+/**
+ * bh_proxy_download_javata - download ta package to FW
+ *
+ * @conn_idx: fw client connection idx
+ * @ta_id: trusted application (ta) id
+ * @ta_pkg: ta binary package
+ * @pkg_len: ta binary package length
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 static int bh_proxy_download_javata(int conn_idx,
 				    uuid_be ta_id,
 				    const char *ta_pkg,
@@ -296,7 +416,7 @@ static int bh_proxy_download_javata(int conn_idx,
 		return -EINVAL;
 
 	h->id = BHP_CMD_DOWNLOAD_JAVATA;
-	cmd->appid = ta_id;
+	cmd->ta_id = ta_id;
 
 	ret = bh_cmd(conn_idx, h, sizeof(*h) + sizeof(*cmd), ta_pkg,
 		     pkg_len, rrmap_add(conn_idx, &rr), &rr);
@@ -307,6 +427,21 @@ static int bh_proxy_download_javata(int conn_idx,
 	return ret;
 }
 
+/**
+ * bh_proxy_openjtasession - send open session command
+ *
+ * @conn_idx: fw client connection idx
+ * @ta_id: trusted application (ta) id
+ * @init_buffer: init parameters to the session (optional)
+ * @init_len: length of the init parameters
+ * @handle: out param to hold the session handle
+ * @ta_pkg: ta binary package
+ * @pkg_len: ta binary package length
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 static int bh_proxy_openjtasession(int conn_idx,
 				   uuid_be ta_id,
 				   const char *init_buffer,
@@ -343,7 +478,7 @@ static int bh_proxy_openjtasession(int conn_idx,
 	seq = rrmap_add(conn_idx, rr);
 
 	h->id = BHP_CMD_OPEN_JTASESSION;
-	cmd->appid = ta_id;
+	cmd->ta_id = ta_id;
 
 	ret = bh_cmd(conn_idx, cmd_buf, cmd_sz, init_buffer, init_len, seq, rr);
 	if (!ret)
@@ -369,7 +504,7 @@ static int bh_proxy_openjtasession(int conn_idx,
 	if (ret)
 		goto out_err;
 
-	*handle = (u64)seq;
+	*handle = seq;
 	session_exit(conn_idx, rr, seq, 0);
 
 	return 0;
@@ -380,33 +515,49 @@ out_err:
 	return ret;
 }
 
-int bhp_open_ta_session(u64 *session, const char *app_id,
+/**
+ * bhp_open_ta_session - open session to ta
+ *
+ * This function will block until VM replied the response
+ *
+ * @session: out param to hold the session handle
+ * @ta_id: trusted application (ta) id
+ * @ta_pkg: ta binary package
+ * @pkg_len: ta binary package length
+ * @init_param: init parameters to the session (optional)
+ * @init_len: length of the init parameters
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
+int bhp_open_ta_session(u64 *session, const char *ta_id,
 			const u8 *ta_pkg, size_t pkg_len,
-			const u8 *init_buffer, size_t init_len)
+			const u8 *init_param, size_t init_len)
 {
 	int ret;
-	uuid_be ta_id;
+	uuid_be bin_ta_id;
 	int conn_idx = 0;
 	int ta_existed = 0;
 	int count = 0;
-	uuid_be *app_ids = NULL;
+	uuid_be *ta_ids = NULL;
 	int i;
 
-	if (!app_id || !session)
+	if (!ta_id || !session)
 		return -EINVAL;
 
 	if (!ta_pkg || !pkg_len)
 		return -EINVAL;
 
-	if (!init_buffer && init_len != 0)
+	if (!init_param && init_len != 0)
 		return -EINVAL;
 
-	if (dal_uuid_be_to_bin(app_id, &ta_id))
+	if (dal_uuid_be_to_bin(ta_id, &bin_ta_id))
 		return -EINVAL;
 
 	*session = 0;
 
-	ret = bh_proxy_check_svl_ta_blocked_state(ta_id);
+	ret = bh_proxy_check_svl_ta_blocked_state(bin_ta_id);
 	if (ret)
 		return ret;
 
@@ -414,34 +565,56 @@ int bhp_open_ta_session(u64 *session, const char *app_id,
 	conn_idx = CONN_IDX_IVM;
 
 	/* 2.1: check whether the ta pkg existed in VM or not */
-	ret = bh_proxy_listJTAPackages(conn_idx, &count, &app_ids);
+	ret = bh_proxy_list_jta_packages(conn_idx, &count, &ta_ids);
+
 	if (!ret) {
 		for (i = 0; i < count; i++) {
-			if (!uuid_be_cmp(ta_id, app_ids[i])) {
+			if (!uuid_be_cmp(bin_ta_id, ta_ids[i])) {
 				ta_existed = 1;
 				break;
 			}
 		}
-		kfree(app_ids);
+		kfree(ta_ids);
 	}
 
 	/* 2.2: download ta pkg if not existed. */
 	if (!ta_existed) {
-		ret = bh_proxy_download_javata(conn_idx,
-					       ta_id, ta_pkg, pkg_len);
+		ret = bh_proxy_download_javata(conn_idx, bin_ta_id, ta_pkg,
+					       pkg_len);
 		if (ret && ret != BHE_PACKAGE_EXIST)
 			goto cleanup;
 	}
 
-	/* 3: send opensession cmd to VM */
-	ret = bh_proxy_openjtasession(conn_idx, ta_id,
-				      init_buffer, init_len,
+	/* 3: send open session command to VM */
+	ret = bh_proxy_openjtasession(conn_idx, bin_ta_id,
+				      init_param, init_len,
 				      session, ta_pkg, pkg_len);
 
 cleanup:
 	return ret;
 }
 
+/**
+ * bhp_send_and_recv - send and receive data to/from ta
+ *
+ * This function will block until VM replied the response
+ *
+ * @handle: session handle
+ * @command_id: command id
+ * @input: message to be sent
+ * @length: sent message size
+ * @output: output param to hold pointer to the buffer which
+ *          will contain received message.
+ *          This buffer is allocated by Beihai and freed by the user
+ * @output_length: input and output param -
+ *                 - input: the expected maximum length of the received message
+ *                 - output: size of the received message
+ * @response_code: output param to hold the return value from the applet
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 int bhp_send_and_recv(const u64 handle, int command_id,
 		      const void *input, size_t length,
 		      void **output, size_t *output_length,
@@ -450,8 +623,8 @@ int bhp_send_and_recv(const u64 handle, int command_id,
 	int ret;
 	char cmdbuf[CMDBUF_SIZE];
 	struct bhp_command_header *h = (struct bhp_command_header *)cmdbuf;
-	struct bhp_snr_cmd *cmd = (struct bhp_snr_cmd *)h->cmd;
-	u64 seq = (u64)handle;
+	struct bhp_cmd *cmd = (struct bhp_cmd *)h->cmd;
+	u64 seq = handle;
 	struct bh_response_record *rr = NULL;
 	int conn_idx = 0;
 	unsigned int len;
@@ -489,22 +662,20 @@ int bhp_send_and_recv(const u64 handle, int command_id,
 		ret = BHE_UNCAUGHT_EXCEPTION;
 
 	if (ret == BHE_APPLET_SMALL_BUFFER && rr->buffer &&
-			rr->length == sizeof(struct bhp_snr_bof_response)) {
-		struct bhp_snr_bof_response *bof_resp =
-			(struct bhp_snr_bof_response *)rr->buffer;
+	    rr->length == sizeof(struct bhp_resp_bof)) {
+		struct bhp_resp_bof *bof = (struct bhp_resp_bof *)rr->buffer;
 
 		if (response_code)
-			*response_code = be32_to_cpu(bof_resp->response);
+			*response_code = be32_to_cpu(bof->response);
 
-		*output_length = be32_to_cpu(bof_resp->request_length);
+		*output_length = be32_to_cpu(bof->request_length);
 	}
 
 	if (ret)
 		goto out;
 
-	if (rr->buffer && rr->length >= sizeof(struct bhp_snr_response)) {
-		struct bhp_snr_response *resp =
-			(struct bhp_snr_response *)rr->buffer;
+	if (rr->buffer && rr->length >= sizeof(struct bhp_resp)) {
+		struct bhp_resp *resp = (struct bhp_resp *)rr->buffer;
 
 		if (response_code)
 			*response_code = be32_to_cpu(resp->response);
@@ -539,6 +710,17 @@ out:
 	return ret;
 }
 
+/**
+ * bhp_close_ta_session - close ta session
+ *
+ * This function will block until VM replied the response
+ *
+ * @handle: session handle
+ *
+ * Return: 0 on success
+ *         <0 on system failure
+ *         >0 on FW failure
+ */
 int bhp_close_ta_session(const u64 handle)
 {
 	int ret;
@@ -547,7 +729,8 @@ int bhp_close_ta_session(const u64 handle)
 	struct bhp_close_jtasession_cmd *cmd =
 			(struct bhp_close_jtasession_cmd *)h->cmd;
 	struct bh_response_record *rr;
-	u64 seq = (u64)handle;
+	const size_t cmd_sz = sizeof(*h) + sizeof(*cmd);
+	u64 seq = handle;
 	int conn_idx = 0;
 
 	memset(cmdbuf, 0, sizeof(cmdbuf));
@@ -559,7 +742,7 @@ int bhp_close_ta_session(const u64 handle)
 	h->id = BHP_CMD_CLOSE_JTASESSION;
 	cmd->ta_session_id = rr->addr;
 
-	ret = bh_cmd(conn_idx, h, sizeof(*h) + sizeof(*cmd), NULL, 0, seq, rr);
+	ret = bh_cmd(conn_idx, h, cmd_sz, NULL, 0, seq, rr);
 
 	if (!ret)
 		ret = rr->code;
@@ -568,8 +751,8 @@ int bhp_close_ta_session(const u64 handle)
 		ret = BHE_UNCAUGHT_EXCEPTION;
 
 	/*
-	 * internal session exists, so we should not close the hmc session.
-	 * It means that host app should call this API at approciate time later.
+	 * An internal session exists, so we should not close the session.
+	 * It means that host app should call this API at appropriate time.
 	 */
 	if (ret == BHE_IAC_EXIST_INTERNAL_SESSION)
 		session_exit(conn_idx, rr, seq, 1);
@@ -579,6 +762,20 @@ int bhp_close_ta_session(const u64 handle)
 	return ret;
 }
 
+/**
+ * bh_filter_hdr - filter the sent message
+ *
+ * Allow to send valid messages only.
+ * The filtering is done using given filter functions table
+ *
+ * @hdr: message header
+ * @count: message size
+ * @ctx: context to send to the filter functions
+ * @tbl: filter functions table
+ *
+ * Return: 0 when message is valid
+ *         <0 on otherwise
+ */
 int bh_filter_hdr(const struct bhp_command_header *hdr, size_t count, void *ctx,
 		  const bh_filter_func tbl[])
 {
@@ -593,6 +790,17 @@ int bh_filter_hdr(const struct bhp_command_header *hdr, size_t count, void *ctx,
 	return 0;
 }
 
+/**
+ * bh_prep_access_denied_response - prepare package with 'access denied'
+ *                                  response code.
+ *
+ * This function is used to send in band error to user who trying to send
+ * message when he lacks the needed permissions
+ *
+ * @cmd: the invalid command message (needed in order to find out
+ *       the sequence number)
+ * @res: out param to hold the response header
+ */
 void bh_prep_access_denied_response(const char *cmd,
 				    struct bhp_response_header *res)
 {

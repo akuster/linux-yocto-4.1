@@ -65,84 +65,19 @@
 
 #include "bh_errcode.h"
 
-/**
- * Invoke this function before using other API.
- * It will try to connect ME processes(Launcher, SDM and I-VM),
- * and create receiving threads
- * for those process and do other initialization.
- *
- *
- * @return BH_SUCCESS if initialization was successful
- *
- * @return BPE_NO_CONNECTION_TO_FIRMWARE if failed to HECI initialization
- * @return BPE_INTERNAL_ERROR if receiver thread cannot be
- * created or other internal failure
- */
 int bhp_init_internal(void);
 
-/**
- * Invoke this function before exiting.
- * If BHP_Init is not called, this function will do nothing.
- * If anything goes wrong, please call this function to release resources.
- *
- * @return BH_SUCCESS if success
- */
 int bhp_deinit_internal(void);
 
-/**
- * Open Session to specified Java TA.
- * The Firmware side might need to spawn the VM process,
- * and create the TA instance.
- * This function will also connect to the VM process's heci address.
- * This function will block until VM replied the response.
- * Please call BHP_Deinit() to clean up when anything goes wrong.
- *
- * @param session [OUT] the ta session handle, which is used in
- * the function BHP_SendAndRecv.
- * @param ta_id [IN] the applet ID (UUID) to create session.
- * @param ta_pkg [in] TA binary package, i.e, .bpk data.
- * @param pkg_len [in] The length of TA binary package in bytes.
- * @param init_param [IN] the input buffer of the CreateSession command.
- * @param param_len [IN] the length of init_param in bytes
- *
- * @return BH_SUCCESS if success
- *
- */
 int bhp_open_ta_session(u64 *session,
 			const char *ta_id,
 			const u8 *ta_pkg,
 			size_t pkg_len,
 			const u8 *init_param,
-			size_t param_len);
+			size_t init_len);
 
-/**
- * Send a CloseTASession command to VM to close the specified Java TA session.
- * This function will be blocked until VM replies the response.
- *
- * @param pSession [IN] the java ta session handle to close.
- *
- * @return BH_SUCCESS if success
- *
- */
 int bhp_close_ta_session(const u64 handle);
 
-/**
- * Send a SendAndRecv command to VM. This function will be blocked until VM
- * replies the response.
- *
- * @param handle [IN] the java ta session handle.
- * @param command_id [IN] the command ID.
- * @param input [IN] the input buffer to be sent to TA.
- * @param length [IN] the length of input buffer.
- * @param output [OUT] the pointer to output buffer.
- * @param output_length [IN/OUT] the expected maximum length of output
- * buffer / the actually length of output buffer.
- * @param response_code [OUT] the command result, which is set by
- * IntelApplet.setResponseCode()
- *
- * @return BH_SUCCESS if success
- *
- */
 int bhp_send_and_recv(const u64 handle,
 		      int command_id,
 		      const void *input,
