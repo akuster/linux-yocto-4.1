@@ -368,9 +368,8 @@ static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
 	rr->buffer = NULL;
 	rr->length = 0;
 
-	memcpy(cmd, BHP_MSG_CMD_MAGIC, BHP_MSG_MAGIC_LENGTH);
-
-	h = (struct bhp_command_header *)cmd;
+	h = cmd;
+	h->h.magic = BH_MSG_CMD_MAGIC;
 	h->h.length = clen + dlen;
 	h->seq = seq;
 
@@ -401,8 +400,7 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 		return ret;
 
 	/* check magic */
-	if (memcmp(BHP_MSG_RESPONSE_MAGIC,
-		   head->h.magic, BHP_MSG_MAGIC_LENGTH) != 0)
+	if (head->h.magic != BH_MSG_RESP_MAGIC)
 		return -EBADMSG;
 
 	/* verify rr */

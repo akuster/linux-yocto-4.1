@@ -74,7 +74,6 @@
 
 static DEFINE_MUTEX(kdi_lock);
 
-#define BH_MSG_MAGIC_LENGTH            4
 #define BH_MSG_SEQUENCE_OFFSET         8
 
 static int to_kdi_err(int err)
