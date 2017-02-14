@@ -112,24 +112,20 @@ int dal_uuid_be_to_bin(const char *uuid_str, uuid_be *uuid)
 }
 EXPORT_SYMBOL(dal_uuid_be_to_bin);
 
-/*
- * 4 bytes array to identify BH headers
- */
-static const u8 BH_MSG_RESP_MAGIC[]  = {0xff, 0xa5, 0xaa, 0x55};
-static const u8 BH_MSG_CMD_MAGIC[]   = {0xff, 0xa3, 0xaa, 0x55};
-
 /* Check for response msg */
-bool bh_msg_is_response(const char *msg, size_t len)
+bool bh_msg_is_response(const void *msg, size_t len)
 {
-	return (len >= sizeof(struct bhp_response_header)) &&
-		!memcmp(msg, BH_MSG_RESP_MAGIC, sizeof(BH_MSG_CMD_MAGIC));
+	const struct bhp_response_header *r =  msg;
+
+	return (len >= sizeof(*r) && r->h.magic == BH_MSG_RESP_MAGIC);
 }
 
 /* Check for command msg */
-bool bh_msg_is_cmd(const char *msg, size_t len)
+bool bh_msg_is_cmd(const void *msg, size_t len)
 {
-	return (len >= sizeof(struct bhp_command_header)) &&
-		!memcmp(msg, BH_MSG_CMD_MAGIC, sizeof(BH_MSG_CMD_MAGIC));
+	const struct bhp_command_header *c =  msg;
+
+	return (len >= sizeof(*c) && c->h.magic == BH_MSG_CMD_MAGIC);
 }
 
 const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len)
@@ -602,7 +598,7 @@ void bh_prep_access_denied_response(const char *cmd,
 {
 	struct bhp_command_header *cmd_hdr = (struct bhp_command_header *)cmd;
 
-	memcpy(res->h.magic, BHP_MSG_RESPONSE_MAGIC, BHP_MSG_MAGIC_LENGTH);
+	res->h.magic = BH_MSG_RESP_MAGIC;
 	res->h.length = sizeof(*res);
 	res->code = BHE_OPERATION_NOT_PERMITTED;
 	res->seq = cmd_hdr->seq;

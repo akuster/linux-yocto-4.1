@@ -76,9 +76,8 @@
 #include "bh_types.h"
 #include "bh_errcode.h"
 
-#define BHP_MSG_MAGIC_LENGTH (4)
-#define BHP_MSG_CMD_MAGIC "\xff\xa3\xaa\x55"
-#define BHP_MSG_RESPONSE_MAGIC "\xff\xa5\xaa\x55"
+#define BH_MSG_RESP_MAGIC  0x55aaa5ff
+#define BH_MSG_CMD_MAGIC   0x55aaa3ff
 
 enum bhp_command_id {
 	BHP_CMD_INIT = 0,
@@ -121,7 +120,7 @@ enum bhp_command_id {
 };
 
 struct transport_msg_header {
-	u8 magic[BHP_MSG_MAGIC_LENGTH];
+	u32 magic;
 	u32 length;
 };
 
