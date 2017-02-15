@@ -65,10 +65,6 @@
 
 #include "bh_errcode.h"
 
-int bhp_init_internal(void);
-
-int bhp_deinit_internal(void);
-
 int bhp_open_ta_session(u64 *session,
 			const char *ta_id,
 			const u8 *ta_pkg,

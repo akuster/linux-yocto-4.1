@@ -122,18 +122,9 @@ enum bhp_connection_index {
 	MAX_CONNECTIONS
 };
 
-/**
- * enum bhp_state - current state of bhp
- *
- * @DEINITED: not inited
- * @INITED: inited
- */
-enum bhp_state {
-	DEINITED = 0,
-	INITED = 1,
-};
-
 bool bhp_is_initialized(void);
+void bhp_init_internal(void);
+void bhp_deinit_internal(void);
 
 u64 rrmap_add(int conn_idx, struct bh_response_record *rr);
 

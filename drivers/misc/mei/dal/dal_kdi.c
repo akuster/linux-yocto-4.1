@@ -460,11 +460,7 @@ int dal_kdi_init(void)
 {
 	int ret;
 
-	ret = bhp_init_internal();
-	if (ret) {
-		pr_debug("bhp_init: failed with status = 0x%x\n", ret);
-		return to_kdi_err(ret);
-	}
+	bhp_init_internal();
 
 	kdi_interface.class = dal_class;
 	ret = class_interface_register(&kdi_interface);
