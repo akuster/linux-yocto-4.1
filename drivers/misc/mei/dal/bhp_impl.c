@@ -65,7 +65,8 @@
 #include "bhp_exp.h"
 #include "dal_dev.h"
 
-static unsigned int init_state = DEINITED;
+/* BPH initialization state */
+static atomic_t bhp_state = ATOMIC_INIT(0);
 static u64 sequence_number = MSG_SEQ_START_NUMBER;
 
 /*
@@ -386,17 +387,6 @@ static void session_kill(int conn_idx, struct bh_response_record *session,
 	mutex_exit(connections[conn_idx].bhm_rrmap);
 }
 
-/**
- * bhp_is_initialized - check if bhp is initialized
- *
- * Return: true when bhp is initialized
- *         false when bhp is not initialized
- */
-bool bhp_is_initialized(void)
-{
-	return (READ_ONCE(init_state) == INITED);
-}
-
 static char skip_buffer[DAL_MAX_BUFFER_SIZE] = {0};
 /**
  * bh_transport_recv - receive message from FW, using kdi callback 'kdi_recv'
@@ -693,41 +683,32 @@ int bh_request(int conn_idx, void *cmd, unsigned int clen,
 }
 
 /**
+ * bhp_is_initialized - check if bhp is initialized
+ *
+ * Return: true when bhp is initialized
+ *         false when bhp is not initialized
+ */
+bool bhp_is_initialized(void)
+{
+	return atomic_read(&bhp_state) == 1;
+}
+
+/**
  * bhp_init_internal - Beihai plugin init function
  *
  * Return: 0
  */
-int bhp_init_internal(void)
+void bhp_init_internal(void)
 {
-	if (bhp_is_initialized())
-		return 0;
-
-	/* step 1: init connections to each process */
-	bh_connections_init();
-
-	/* RESET flow removed to allow JHI and KDI to coexist */
-	/* this assignment is atomic operation */
-	WRITE_ONCE(init_state, INITED);
-
-	return 0;
+	if (atomic_add_unless(&bhp_state, 1, 1))
+		bh_connections_init();
 }
 
 /**
  * bhp_deinit_internal - Beihai plugin deinit function
- *
- * Return: 0
  */
-int bhp_deinit_internal(void)
+void bhp_deinit_internal(void)
 {
-	mutex_enter(bhm_gInit);
-
-	if (bhp_is_initialized()) {
-		/* RESET flow removed to allow JHI and KDI to coexist */
+	if (atomic_add_unless(&bhp_state, -1, 0))
 		bh_connections_deinit();
-		WRITE_ONCE(init_state, DEINITED);
-	}
-
-	mutex_exit(bhm_gInit);
-
-	return 0;
 }
