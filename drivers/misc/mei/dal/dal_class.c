@@ -238,7 +238,8 @@ static void dal_recv_cb(struct mei_cl_device *cldev)
 	 * save new msg in queue,
 	 * if the queue is full all new messages will be thrown
 	 */
-	ret = kfifo_in(&dc->read_queue, &ddev->bh_fw_msg, len + sizeof(len));
+	ret = kfifo_in(&dc->read_queue, &ddev->bh_fw_msg.len, sizeof(len));
+	ret += kfifo_in(&dc->read_queue, ddev->bh_fw_msg.msg, len);
 	if (ret < len + sizeof(len))
 		dev_dbg(&ddev->dev, "queue is full - MSG THROWN");
 
@@ -430,8 +431,8 @@ ssize_t dal_write(struct dal_client *dc, size_t count, u64 seq)
 		goto out;
 
 	dev_dbg(dev, "before mei_cldev_send - client type %d", intf);
-	print_hex_dump_bytes("Buffer to send:",
-			DUMP_PREFIX_NONE, dc->write_buffer, count);
+	print_hex_dump_bytes("Buffer to send:", DUMP_PREFIX_NONE,
+			     dc->write_buffer, count);
 
 	/* send msg via MEI */
 	wr = mei_cldev_send(ddev->cldev, dc->write_buffer, count);
@@ -467,7 +468,7 @@ ssize_t dal_write(struct dal_client *dc, size_t count, u64 seq)
 
 	if (dc->bytes_sent_to_fw != dc->expected_msg_size_to_fw) {
 		dev_dbg(dev, "expecting to write more data to FW - client type %d",
-				intf);
+			intf);
 		goto write_more;
 	}
 out:
@@ -528,7 +529,7 @@ int dal_dc_setup(struct dal_device *ddev, enum dal_intf intf)
 {
 	int ret;
 	struct dal_client *dc;
-	size_t readq_sz = DAL_MAX_BUFFER_PER_CLIENT * sizeof(struct dal_bh_msg);
+	size_t readq_sz;
 
 	if (ddev->clients[intf]) {
 		dev_err(&ddev->dev, "client already set\n");
@@ -539,6 +540,9 @@ int dal_dc_setup(struct dal_device *ddev, enum dal_intf intf)
 	if (!dc)
 		return  -ENOMEM;
 
+	/* each buffer contains data and length */
+	readq_sz = (DAL_MAX_BUFFER_SIZE + sizeof(ddev->bh_fw_msg.len)) *
+		   DAL_MAX_BUFFER_PER_CLIENT;
 	ret = kfifo_alloc(&dc->read_queue, readq_sz, GFP_KERNEL);
 	if (ret) {
 		kfree(dc);
@@ -586,6 +590,7 @@ static void dal_class_release(struct device *dev)
 
 	dal_access_list_free(ddev);
 
+	kfree(ddev->bh_fw_msg.msg);
 	kfree(ddev);
 }
 
@@ -598,6 +603,12 @@ static int dal_probe(struct mei_cl_device *cldev,
 	ddev = kzalloc(sizeof(*ddev), GFP_KERNEL);
 	if (!ddev)
 		return -ENOMEM;
+
+	ddev->bh_fw_msg.msg = kzalloc(DAL_MAX_BUFFER_SIZE, GFP_KERNEL);
+	if (!ddev->bh_fw_msg.msg) {
+		kfree(ddev);
+		return -ENOMEM;
+	}
 
 	/* initialize the mutex and wait queue */
 	mutex_init(&ddev->context_lock);
@@ -644,6 +655,7 @@ err_dev_create:
 err_dal_mei_remove:
 	dal_remove(cldev);
 
+	kfree(ddev->bh_fw_msg.msg);
 	kfree(ddev);
 
 	return ret;
