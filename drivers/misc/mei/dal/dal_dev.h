@@ -115,8 +115,8 @@ struct dal_client;
  * @msg: message buffer
  */
 struct dal_bh_msg {
-	size_t  len;
-	char msg[DAL_MAX_BUFFER_SIZE];
+	size_t len;
+	char *msg;
 };
 
 /**
