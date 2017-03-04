@@ -2439,18 +2439,6 @@ void intel_crt_init(struct drm_device *dev)
 	  <title>Tile group</title>
 !Pdrivers/gpu/drm/drm_crtc.c Tile group
     </sect2>
-    <sect2>
-	<title>Bridges</title>
-      <sect3>
-	 <title>Overview</title>
-!Pdrivers/gpu/drm/drm_bridge.c overview
-      </sect3>
-      <sect3>
-	 <title>Default bridge callback sequence</title>
-!Pdrivers/gpu/drm/drm_bridge.c bridge callbacks
-      </sect3>
-!Edrivers/gpu/drm/drm_bridge.c
-    </sect2>
   </sect1>
 
   <!-- Internals: kms properties -->
@@ -4017,6 +4005,7 @@ int num_ioctls;</synopsis>
         <title>Frontbuffer Tracking</title>
 !Pdrivers/gpu/drm/i915/intel_frontbuffer.c frontbuffer tracking
 !Idrivers/gpu/drm/i915/intel_frontbuffer.c
+!Fdrivers/gpu/drm/i915/intel_drv.h intel_frontbuffer_flip
 !Fdrivers/gpu/drm/i915/i915_gem.c i915_gem_track_fb
       </sect2>
       <sect2>
@@ -4049,11 +4038,6 @@ int num_ioctls;</synopsis>
         </para>
       </sect2>
       <sect2>
-        <title>Hotplug</title>
-!Pdrivers/gpu/drm/i915/intel_hotplug.c Hotplug
-!Idrivers/gpu/drm/i915/intel_hotplug.c
-      </sect2>
-      <sect2>
 	<title>High Definition Audio</title>
 !Pdrivers/gpu/drm/i915/intel_audio.c High Definition Audio over HDMI and Display Port
 !Idrivers/gpu/drm/i915/intel_audio.c
@@ -4083,7 +4067,7 @@ int num_ioctls;</synopsis>
         <title>DPIO</title>
 !Pdrivers/gpu/drm/i915/i915_reg.h DPIO
 	<table id="dpiox2">
-	  <title>Dual channel PHY (VLV/CHV/BXT)</title>
+	  <title>Dual channel PHY (VLV/CHV)</title>
 	  <tgroup cols="8">
 	    <colspec colname="c0" />
 	    <colspec colname="c1" />
@@ -4134,7 +4118,7 @@ int num_ioctls;</synopsis>
 	  </tgroup>
 	</table>
 	<table id="dpiox1">
-	  <title>Single channel PHY (CHV/BXT)</title>
+	  <title>Single channel PHY (CHV)</title>
 	  <tgroup cols="4">
 	    <colspec colname="c0" />
 	    <colspec colname="c1" />
@@ -4169,18 +4153,6 @@ int num_ioctls;</synopsis>
 	  </tgroup>
 	</table>
       </sect2>
-
-      <sect2>
-       <title>CSR firmware support for DMC</title>
-!Pdrivers/gpu/drm/i915/intel_csr.c csr support for dmc
-!Idrivers/gpu/drm/i915/intel_csr.c
-      </sect2>
-
-      <sect2>
-       <title>Boot-time mode setting</title>
-!Pdrivers/gpu/drm/i915/intel_modeset.c boot-time mode setting
-!Idrivers/gpu/drm/i915/intel_modeset.c
-      </sect2>
     </sect1>
 
     <sect1>
@@ -4210,23 +4182,6 @@ int num_ioctls;</synopsis>
 !Idrivers/gpu/drm/i915/i915_gem_gtt.c
       </sect2>
       <sect2>
-        <title>GTT Fences and Swizzling</title>
-!Idrivers/gpu/drm/i915/i915_gem_fence.c
-        <sect3>
-          <title>Global GTT Fence Handling</title>
-!Pdrivers/gpu/drm/i915/i915_gem_fence.c fence register handling
-        </sect3>
-        <sect3>
-          <title>Hardware Tiling and Swizzling Details</title>
-!Pdrivers/gpu/drm/i915/i915_gem_fence.c tiling swizzling details
-        </sect3>
-      </sect2>
-      <sect2>
-        <title>Object Tiling IOCTLs</title>
-!Idrivers/gpu/drm/i915/i915_gem_tiling.c
-!Pdrivers/gpu/drm/i915/i915_gem_tiling.c buffer object tiling
-      </sect2>
-      <sect2>
         <title>Buffer Object Eviction</title>
 	<para>
 	  This section documents the interface functions for evicting buffer
@@ -4249,6 +4204,7 @@ int num_ioctls;</synopsis>
 !Idrivers/gpu/drm/i915/i915_gem_shrinker.c
       </sect2>
     </sect1>
+
     <sect1>
       <title> Tracing </title>
       <para>

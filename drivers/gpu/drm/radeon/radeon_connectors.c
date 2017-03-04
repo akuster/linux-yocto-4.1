@@ -95,11 +95,6 @@ void radeon_connector_hotplug(struct drm_connector *connector)
 			if (!radeon_hpd_sense(rdev, radeon_connector->hpd.hpd)) {
 				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_OFF);
 			} else if (radeon_dp_needs_link_train(radeon_connector)) {
-				/* Don't try to start link training before we
-				 * have the dpcd */
-				if (!radeon_dp_getdpcd(radeon_connector))
-					return;
-
 				/* set it to OFF so that drm_helper_connector_dpms()
 				 * won't return immediately since the current state
 				 * is ON at this point.
@@ -1384,16 +1379,8 @@ out:
 	/* updated in get modes as well since we need to know if it's analog or digital */
 	radeon_connector_update_scratch_regs(connector, ret);
 
-	if ((radeon_audio != 0) && radeon_connector->use_digital) {
-		const struct drm_connector_helper_funcs *connector_funcs =
-			connector->helper_private;
-
-		encoder = connector_funcs->best_encoder(connector);
-		if (encoder && (encoder->encoder_type == DRM_MODE_ENCODER_TMDS)) {
-			radeon_connector_get_edid(connector);
-			radeon_audio_detect(connector, encoder, ret);
-		}
-	}
+	if (radeon_audio != 0)
+		radeon_audio_detect(connector, ret);
 
 exit:
 	pm_runtime_mark_last_busy(connector->dev->dev);
@@ -1730,10 +1717,8 @@ radeon_dp_detect(struct drm_connector *connector, bool force)
 
 	radeon_connector_update_scratch_regs(connector, ret);
 
-	if ((radeon_audio != 0) && encoder) {
-		radeon_connector_get_edid(connector);
-		radeon_audio_detect(connector, encoder, ret);
-	}
+	if (radeon_audio != 0)
+		radeon_audio_detect(connector, ret);
 
 out:
 	pm_runtime_mark_last_busy(connector->dev->dev);
@@ -1977,12 +1962,10 @@ radeon_add_atom_connector(struct drm_device *dev,
 						   rdev->mode_info.dither_property,
 						   RADEON_FMT_DITHER_DISABLE);
 
-			if (radeon_audio != 0) {
+			if (radeon_audio != 0)
 				drm_object_attach_property(&radeon_connector->base.base,
 							   rdev->mode_info.audio_property,
 							   RADEON_AUDIO_AUTO);
-				radeon_connector->audio = RADEON_AUDIO_AUTO;
-			}
 			if (ASIC_IS_DCE5(rdev))
 				drm_object_attach_property(&radeon_connector->base.base,
 							   rdev->mode_info.output_csc_property,
@@ -2107,7 +2090,6 @@ radeon_add_atom_connector(struct drm_device *dev,
 				drm_object_attach_property(&radeon_connector->base.base,
 							   rdev->mode_info.audio_property,
 							   RADEON_AUDIO_AUTO);
-				radeon_connector->audio = RADEON_AUDIO_AUTO;
 			}
 			if (connector_type == DRM_MODE_CONNECTOR_DVII) {
 				radeon_connector->dac_load_detect = true;
@@ -2163,7 +2145,6 @@ radeon_add_atom_connector(struct drm_device *dev,
 				drm_object_attach_property(&radeon_connector->base.base,
 							   rdev->mode_info.audio_property,
 							   RADEON_AUDIO_AUTO);
-				radeon_connector->audio = RADEON_AUDIO_AUTO;
 			}
 			if (ASIC_IS_DCE5(rdev))
 				drm_object_attach_property(&radeon_connector->base.base,
@@ -2216,7 +2197,6 @@ radeon_add_atom_connector(struct drm_device *dev,
 				drm_object_attach_property(&radeon_connector->base.base,
 							   rdev->mode_info.audio_property,
 							   RADEON_AUDIO_AUTO);
-				radeon_connector->audio = RADEON_AUDIO_AUTO;
 			}
 			if (ASIC_IS_DCE5(rdev))
 				drm_object_attach_property(&radeon_connector->base.base,

@@ -874,7 +874,7 @@ static int tegra_debugfs_framebuffers(struct seq_file *s, void *data)
 		seq_printf(s, "%3d: user size: %d x %d, depth %d, %d bpp, refcount %d\n",
 			   fb->base.id, fb->width, fb->height, fb->depth,
 			   fb->bits_per_pixel,
-			   drm_framebuffer_read_refcount(fb));
+			   atomic_read(&fb->refcount.refcount));
 	}
 
 	mutex_unlock(&drm->mode_config.fb_lock);
