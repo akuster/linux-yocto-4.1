@@ -292,6 +292,44 @@ static void intel_pstate_hwp_set(void)
 	put_online_cpus();
 }
 
+/**
+ * pstate_cpu_enable_turbo_usage - enable cpu turbo mode
+ *
+ * Enable turbo mode for all cpu cores by changing
+ * no_turbo variable
+ *
+ * Return 0 on success, otherwise errno
+ */
+int pstate_cpu_enable_turbo_usage(void)
+{
+	update_turbo_state();
+	if (limits.turbo_disabled) {
+		pr_warn("intel_pstate: Turbo disabled by BIOS or unavailable on processor\n");
+		return -EPERM;
+	}
+
+	limits.no_turbo = 0;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pstate_cpu_enable_turbo_usage);
+
+/**
+ * pstate_cpu_disable_turbo_usage - disable cpu turbo mode
+ *
+ * Disable turbo mode for all cpu cores by changing
+ * no_turbo variable
+ *
+ * Return 0 on success, otherwise errno
+ */
+int pstate_cpu_disable_turbo_usage(void)
+{
+	limits.no_turbo = 1;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pstate_cpu_disable_turbo_usage);
+
 /************************** debugfs begin ************************/
 static int pid_param_set(void *data, u64 val)
 {
