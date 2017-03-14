@@ -28,6 +28,7 @@
 #include <linux/acpi.h>
 #include <linux/vmalloc.h>
 #include <trace/events/power.h>
+#include <linux/notifier.h>
 
 #include <asm/div64.h>
 #include <asm/msr.h>
@@ -43,6 +44,7 @@
 #define int_tofp(X) ((int64_t)(X) << FRAC_BITS)
 #define fp_toint(X) ((X) >> FRAC_BITS)
 
+static ATOMIC_NOTIFIER_HEAD(pstate_freq_notifier_list);
 
 static inline int32_t mul_fp(int32_t x, int32_t y)
 {
@@ -838,6 +840,33 @@ static void intel_pstate_get_min_max(struct cpudata *cpu, int *min, int *max)
 	*min = clamp_t(int, min_perf, cpu->pstate.min_pstate, max_perf);
 }
 
+/**
+ * Register a notifier callback whenever the CPU frequency changes.
+ * @nb: pointer to the notifier block for the callback
+ */
+int pstate_register_freq_notify(struct notifier_block *nb)
+{
+	return atomic_notifier_chain_register(&pstate_freq_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(pstate_register_freq_notify);
+
+/**
+ * Unregister a gpu freqency change notifier callback.
+ * @nb: pointer to the notifier block for the callback
+ */
+int pstate_unregister_freq_notify(struct notifier_block *nb)
+{
+	return atomic_notifier_chain_unregister(&pstate_freq_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(pstate_unregister_freq_notify);
+
+static int pstate_notifier_call_chain(struct cpudata *cpu)
+{
+	return atomic_notifier_call_chain(&pstate_freq_notifier_list,
+		(unsigned long) cpu->pstate.current_pstate,
+		(void *) (long) (cpu->cpu));
+}
+
 static void intel_pstate_set_pstate(struct cpudata *cpu, int pstate, bool force)
 {
 	int max_perf, min_perf;
@@ -857,6 +886,8 @@ static void intel_pstate_set_pstate(struct cpudata *cpu, int pstate, bool force)
 	cpu->pstate.current_pstate = pstate;
 
 	pstate_funcs.set(cpu, pstate);
+
+	pstate_notifier_call_chain(cpu);
 }
 
 static void intel_pstate_get_cpu_pstates(struct cpudata *cpu)
