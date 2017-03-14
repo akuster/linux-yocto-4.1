@@ -44,6 +44,9 @@
 #define int_tofp(X) ((int64_t)(X) << FRAC_BITS)
 #define fp_toint(X) ((X) >> FRAC_BITS)
 
+/* Number of timer cycles for triggering force notification */
+#define NUM_CYCLES 10
+
 static ATOMIC_NOTIFIER_HEAD(pstate_freq_notifier_list);
 
 static int notification_registered_flag;
@@ -106,6 +109,7 @@ struct _pid {
 
 struct cpudata {
 	int cpu;
+	int counter;
 
 	struct timer_list timer;
 
@@ -872,6 +876,7 @@ EXPORT_SYMBOL_GPL(pstate_unregister_freq_notify);
 
 static int pstate_notifier_call_chain(struct cpudata *cpu)
 {
+	cpu->counter = 0;
 	return atomic_notifier_call_chain(&pstate_freq_notifier_list,
 		(unsigned long) cpu->pstate.current_pstate,
 		(void *) (long) (cpu->cpu));
@@ -888,8 +893,12 @@ static void intel_pstate_set_pstate(struct cpudata *cpu, int pstate, bool force)
 
 		pstate = clamp_t(int, pstate, min_perf, max_perf);
 
-		if (pstate == cpu->pstate.current_pstate)
+		if (pstate == cpu->pstate.current_pstate) {
+			if (++cpu->counter >= NUM_CYCLES)
+				pstate_notifier_call_chain(cpu);
+
 			return;
+		}
 	}
 	trace_cpu_frequency(pstate * cpu->pstate.scaling, cpu->cpu);
 
