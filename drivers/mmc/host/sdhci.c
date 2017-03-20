@@ -1885,7 +1885,6 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	bool hs400_tuning;
 
 	sdhci_runtime_pm_get(host);
-	spin_lock_irqsave(&host->lock, flags);
 
 	hs400_tuning = host->flags & SDHCI_HS400_TUNING;
 	host->flags &= ~SDHCI_HS400_TUNING;
@@ -1904,7 +1903,7 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	/* HS400 tuning is done in HS200 mode */
 	case MMC_TIMING_MMC_HS400:
 		err = -EINVAL;
-		goto out_unlock;
+		goto out_pm;
 
 	case MMC_TIMING_MMC_HS200:
 		/*
@@ -1926,14 +1925,12 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 		/* FALLTHROUGH */
 
 	default:
-		goto out_unlock;
+		goto out_pm;
 	}
 
 	if (host->ops->platform_execute_tuning) {
-		spin_unlock_irqrestore(&host->lock, flags);
 		err = host->ops->platform_execute_tuning(host, opcode);
-		sdhci_runtime_pm_put(host);
-		return err;
+		goto out_pm;
 	}
 
 	ctrl = sdhci_readw(host, SDHCI_HOST_CONTROL2);
@@ -1962,7 +1959,7 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	do {
 		struct mmc_command cmd = {0};
 		struct mmc_request mrq = {NULL};
-
+		spin_lock_irqsave(&host->lock, flags);
 		cmd.opcode = opcode;
 		cmd.arg = 0;
 		cmd.flags = MMC_RSP_R1 | MMC_CMD_ADTC;
@@ -1970,8 +1967,10 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 		cmd.data = NULL;
 		cmd.error = 0;
 
-		if (tuning_loop_counter-- == 0)
+		if (tuning_loop_counter-- == 0) {
+			spin_unlock_irqrestore(&host->lock, flags);
 			break;
+		}
 
 		mrq.cmd = &cmd;
 		host->mrq = &mrq;
@@ -2005,13 +2004,13 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 
 		host->cmd = NULL;
 		host->mrq = NULL;
-
+		mmiowb();
 		spin_unlock_irqrestore(&host->lock, flags);
 		/* Wait for Buffer Read Ready interrupt */
 		wait_event_interruptible_timeout(host->buf_ready_int,
 					(host->tuning_done == 1),
 					msecs_to_jiffies(50));
-		spin_lock_irqsave(&host->lock, flags);
+
 
 		if (!host->tuning_done) {
 			pr_info(DRIVER_NAME ": Timeout waiting for "
@@ -2067,8 +2066,7 @@ out:
 
 	sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
 	sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
-out_unlock:
-	spin_unlock_irqrestore(&host->lock, flags);
+out_pm:
 	sdhci_runtime_pm_put(host);
 
 	return err;
