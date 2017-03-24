@@ -471,6 +471,8 @@ struct igb_adapter {
 	int copper_tries;
 	struct e1000_info ei;
 	u16 eee_advert;
+	u8 igb_runtime_status;
+	u8 igb_runtime_auto;
 };
 
 #define IGB_FLAG_HAS_MSI		(1 << 0)
