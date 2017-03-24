@@ -1776,14 +1776,17 @@ void igb_down(struct igb_adapter *adapter)
 	struct e1000_hw *hw = &adapter->hw;
 	u32 tctl, rctl;
 	int i;
+#ifdef CONFIG_PM
 	struct pci_dev *pdev = adapter->pdev;
+	adapter->igb_runtime_status = pdev->dev.power.runtime_status;
+#endif
 	/* signal that we're down so the interrupt handler does not
 	 * reschedule our watchdog timer
 	 */
 	/* While in suspend state the i210 FW is not doing Link Down
 	 * so no need to set state to __IGB_DOWN
 	*/
-	if (!(pdev->dev.power.runtime_status == RPM_SUSPENDING))
+	if (!(adapter->igb_runtime_status == RPM_SUSPENDING))
 		set_bit(__IGB_DOWN, &adapter->state);
 
 	/* disable receives in the hardware */
@@ -1795,7 +1798,7 @@ void igb_down(struct igb_adapter *adapter)
 	 * do not stop the queue so that apps can continue using
 	 * the net device as they are not aware of runtime suspend
 	 */
-	if (!(pdev->dev.power.runtime_status == RPM_SUSPENDING)) {
+	if (!(adapter->igb_runtime_status == RPM_SUSPENDING)) {
 		netif_carrier_off(netdev);
 		netif_tx_stop_all_queues(netdev);
 	}
@@ -1813,7 +1816,7 @@ void igb_down(struct igb_adapter *adapter)
 	/* While in suspend state the i210 FW is not doing Link Down
 	 * so no need to clear flag IGB_FLAG_NEED_LINK_UPDATE
 	 */
-	if (!(pdev->dev.power.runtime_status == RPM_SUSPENDING))
+	if (!(adapter->igb_runtime_status == RPM_SUSPENDING))
 		adapter->flags &= ~IGB_FLAG_NEED_LINK_UPDATE;
 
 	for (i = 0; i < adapter->num_q_vectors; i++) {
@@ -2549,6 +2552,10 @@ static int igb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	device_set_wakeup_enable(&adapter->pdev->dev,
 				 adapter->flags & IGB_FLAG_WOL_SUPPORTED);
 
+	/* Initailize the rpm status and power control with default values */
+	adapter->igb_runtime_status = -1;
+	adapter->igb_runtime_auto = 0;
+
 	/* reset the hardware with the new settings */
 	igb_reset(adapter);
 
@@ -3066,6 +3073,9 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	struct pci_dev *pdev = adapter->pdev;
 	int err;
 	int i;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_status = pdev->dev.power.runtime_status;
+#endif
 
 	/* disallow open during test */
 	if (test_bit(__IGB_TESTING, &adapter->state)) {
@@ -3076,7 +3086,7 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	if (!resuming)
 		pm_runtime_get_sync(&pdev->dev);
 
-	if (!(pdev->dev.power.runtime_status == RPM_RESUMING))
+	if (!(adapter->igb_runtime_status == RPM_RESUMING))
 		netif_carrier_off(netdev);
 
 	/* allocate transmit descriptors */
@@ -3107,7 +3117,7 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	 * do not set the number of queues again as we are
 	 * not stopping the queues during runtime suspend.
 	 */
-	if (!(pdev->dev.power.runtime_status == RPM_RESUMING)) {
+	if (!(adapter->igb_runtime_status == RPM_RESUMING)) {
 		err = netif_set_real_num_tx_queues(adapter->netdev,
 						   adapter->num_tx_queues);
 		if (err)
@@ -3141,7 +3151,7 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 	/* In runtime suspend we are not stopping the queues
 	 * hence we do not need to start again.
 	 */
-	if (!(pdev->dev.power.runtime_status == RPM_RESUMING))
+	if (!(adapter->igb_runtime_status == RPM_RESUMING))
 		netif_tx_start_all_queues(netdev);
 
 	/* schedule runtime suspend from open */
@@ -4066,6 +4076,9 @@ static void igb_set_rx_mode_task(struct work_struct *work)
 						   set_rx_mode_task);
 	struct net_device *netdev = adapter->netdev;
 	struct pci_dev *pdev = adapter->pdev;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 
 	pm_runtime_get_sync(&pdev->dev);
 
@@ -4075,7 +4088,7 @@ static void igb_set_rx_mode_task(struct work_struct *work)
 	 * Else let watchdog task schedule the suspend
 	 */
 	if (netif_carrier_ok(adapter->netdev) &&
-	    (pdev->dev.power.runtime_auto)) {
+	    (adapter->igb_runtime_auto)) {
 		pm_runtime_mark_last_busy(&pdev->dev);
 		pm_runtime_put_autosuspend(&pdev->dev);
 	} else {
@@ -4318,15 +4331,18 @@ static void igb_watchdog_task(struct work_struct *work)
 	u32 link;
 	int i;
 	u32 connsw;
+#ifdef CONFIG_PM
 	struct pci_dev *pdev = adapter->pdev;
-
+	adapter->igb_runtime_status = pdev->dev.power.runtime_status;
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 	/* While suspend in progress prevent rescheduling of watchdog */
-	if ((pdev->dev.power.runtime_status == RPM_SUSPENDING) ||
-	    (pdev->dev.power.runtime_status == RPM_SUSPENDED)) {
+	if ((adapter->igb_runtime_status == RPM_SUSPENDING) ||
+	    (adapter->igb_runtime_status == RPM_SUSPENDED)) {
 		return;
 	}
 	link = igb_has_link(adapter);
-
+#ifdef CONFIG_PM
 	if (pdev->dev.power.disable_depth) {
 		/* The igb firmware does not perform link down
 		 * under runtime PM.
@@ -4339,6 +4355,15 @@ static void igb_watchdog_task(struct work_struct *work)
 				link = false;
 		}
 	}
+#else
+		if (adapter->flags & IGB_FLAG_NEED_LINK_UPDATE) {
+			if (time_after(jiffies,
+				       (adapter->link_check_timeout + HZ)))
+				adapter->flags &= ~IGB_FLAG_NEED_LINK_UPDATE;
+			else
+				link = false;
+		}
+#endif
 
 	/* Force link down if we have fiber to swap to */
 	if (adapter->flags & IGB_FLAG_MAS_ENABLE) {
@@ -4359,7 +4384,9 @@ static void igb_watchdog_task(struct work_struct *work)
 		 * when cable is connected.
 		 * disable_depth is 1 meaning runtime pm disabled.
 		 */
+#ifdef CONFIG_PM
 		if (pdev->dev.power.disable_depth)
+#endif
 			pm_runtime_resume(netdev->dev.parent);
 
 		if (!netif_carrier_ok(netdev)) {
@@ -4470,7 +4497,7 @@ static void igb_watchdog_task(struct work_struct *work)
 		 * should be "auto". Otherwise scenerio where driver is loaded
 		 * w/o n/w cable is not entering to suspend
 		 */
-	if (pdev->dev.power.runtime_auto)
+	if (adapter->igb_runtime_auto)
 		pm_request_autosuspend(netdev->dev.parent);
 	}
 
@@ -5304,6 +5331,9 @@ static struct rtnl_link_stats64 *igb_get_stats64(struct net_device *netdev,
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	struct pci_dev *pdev = adapter->pdev;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 
 	pm_runtime_get(&pdev->dev);
 	spin_lock(&adapter->stats64_lock);
@@ -5316,7 +5346,7 @@ static struct rtnl_link_stats64 *igb_get_stats64(struct net_device *netdev,
 	 * Else let watchdog task schedule the suspend.
 	 */
 	if (netif_carrier_ok(adapter->netdev) &&
-	    (pdev->dev.power.runtime_auto)) {
+	    (adapter->igb_runtime_auto)) {
 		pm_runtime_mark_last_busy(&pdev->dev);
 		pm_runtime_put_autosuspend(&pdev->dev);
 	} else {
@@ -6550,10 +6580,12 @@ static int igb_poll(struct napi_struct *napi, int budget)
 	bool clean_complete = true;
 	struct igb_adapter *adapter = q_vector->adapter;
 	struct pci_dev *pdev = adapter->pdev;
-
+#ifdef CONFIG_PM
+	adapter->igb_runtime_status = pdev->dev.power.runtime_status;
+#endif
 	/* if igb_poll invoked while suspend in progress return from here */
-	if ((pdev->dev.power.runtime_status == RPM_SUSPENDING) ||
-	    (pdev->dev.power.runtime_status == RPM_SUSPENDED)) {
+	if ((adapter->igb_runtime_status == RPM_SUSPENDING) ||
+	    (adapter->igb_runtime_status == RPM_SUSPENDED)) {
 		napi_complete(napi);
 		return 0;
 	}
@@ -6598,6 +6630,9 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 	union e1000_adv_tx_desc *eop_desc_temp = NULL;
 	unsigned int count = 0;
 	struct pci_dev *pdev = adapter->pdev;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 
 	if (test_bit(__IGB_DOWN, &adapter->state))
 		return true;
@@ -6759,7 +6794,7 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector)
 		spin_lock(&adapter->rpm_txlock);
 		adapter->igb_tx_pending -= count;
 		if ((!adapter->igb_tx_pending) &&
-		    (pdev->dev.power.runtime_auto)) {
+		    (adapter->igb_runtime_auto)) {
 			spin_unlock(&adapter->rpm_txlock);
 			pm_runtime_mark_last_busy(&pdev->dev);
 			pm_runtime_put_sync_autosuspend(&pdev->dev);
@@ -7170,6 +7205,9 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 	u16 cleaned_count = igb_desc_unused(rx_ring);
 	struct igb_adapter *adapter = q_vector->adapter;
 	struct pci_dev *pdev = adapter->pdev;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 
 	while (likely(total_packets < budget)) {
 		union e1000_adv_rx_desc *rx_desc;
@@ -7243,7 +7281,7 @@ static bool igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 	 * device power/control is set to "auto".
 	 */
 
-	if ((total_packets) && (pdev->dev.power.runtime_auto)) {
+	if ((total_packets) && (adapter->igb_runtime_auto)) {
 		pm_runtime_mark_last_busy(&pdev->dev);
 		pm_runtime_put_sync_autosuspend(&pdev->dev);
 	} else {
@@ -7470,6 +7508,9 @@ static int igb_vlan_rx_add_vid(struct net_device *netdev,
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	struct pci_dev *pdev = adapter->pdev;
 	int ret;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 
 	pm_runtime_get_sync(&pdev->dev);
 
@@ -7479,7 +7520,7 @@ static int igb_vlan_rx_add_vid(struct net_device *netdev,
 	 * Else let watchdog task schedule the suspend.
 	 */
 	if (netif_carrier_ok(adapter->netdev) &&
-	    (pdev->dev.power.runtime_auto)) {
+	    (adapter->igb_runtime_auto)) {
 		pm_runtime_mark_last_busy(&pdev->dev);
 		pm_runtime_put_autosuspend(&pdev->dev);
 	} else {
@@ -7514,6 +7555,9 @@ static int igb_vlan_rx_kill_vid(struct net_device *netdev,
 	int pf_id = adapter->vfs_allocated_count;
 	s32 err;
 	struct pci_dev *pdev = adapter->pdev;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_auto = pdev->dev.power.runtime_auto;
+#endif
 
 	pm_runtime_get_sync(&pdev->dev);
 	/* remove vlan from VLVF table array */
@@ -7529,7 +7573,7 @@ static int igb_vlan_rx_kill_vid(struct net_device *netdev,
        / * Else let watchdog task schedule the suspend
 	 */
 	 if (netif_carrier_ok(adapter->netdev) &&
-	     (pdev->dev.power.runtime_auto)) {
+	     (adapter->igb_runtime_auto)) {
 		pm_runtime_mark_last_busy(&pdev->dev);
 		pm_runtime_put_autosuspend(&pdev->dev);
 	} else {
@@ -7757,6 +7801,9 @@ static int igb_resume(struct device *dev)
 	struct sk_buff *skb;
 	u32 err, reg_val, wupl;
 	int status, i;
+#ifdef CONFIG_PM
+	adapter->igb_runtime_status = pdev->dev.power.runtime_status;
+#endif
 
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
@@ -7817,7 +7864,7 @@ skip_wupm:
 	wr32(E1000_WUS, ~0);
 
 	if (netdev->flags & IFF_UP) {
-		if (!(pdev->dev.power.runtime_status == RPM_RESUMING)) {
+		if (!(adapter->igb_runtime_status == RPM_RESUMING)) {
 			/* normal resume */
 			rtnl_lock();
 			err = __igb_open(netdev, true);
