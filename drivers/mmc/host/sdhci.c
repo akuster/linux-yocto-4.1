@@ -2529,7 +2529,6 @@ again:
 	}
 
 	intmask &= ~SDHCI_INT_BUS_POWER;
-
 	if (intmask & SDHCI_INT_CARD_INT)
 		cardint = 1;
 
