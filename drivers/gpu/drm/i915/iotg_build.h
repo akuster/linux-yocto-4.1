@@ -1,0 +1,1 @@
+#define IOTG_BUILD_ID "2017y-04m-21d-13h-54m-49s -0700  (c7871b5)"
