@@ -31,6 +31,7 @@
 * @brief          This file implements a CPU turbo usage control
 */
 
+#ifdef CONFIG_X86_INTEL_PSTATE
 #include <linux/cpufreq.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
@@ -433,3 +434,12 @@ void cpu_manager_cleanup(void)
 	}
 	kfree(cpu_data);
 }
+#else
+int cpu_manager_init(void) { return 0; };
+void cpu_manager_cleanup(void) {};
+void cpu_register_notification(void) {};
+void cpu_unregister_notification(void) {};
+int pstate_cpu_get_sample(void) { return 0; };
+int cpu_fstats_expose(struct tfmg_fstats *fstats) { return 0; };
+void cpu_fstats_cleanup(struct tfmg_fstats *fstats) {};
+#endif

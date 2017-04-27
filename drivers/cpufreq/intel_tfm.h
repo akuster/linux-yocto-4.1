@@ -117,23 +117,13 @@ struct cpudata {
 	spinlock_t cpu_lock;
 };
 
-#ifdef CONFIG_X86_INTEL_PSTATE
-int cpu_manager_init(void);
-void cpu_manager_cleanup(void);
-void cpu_register_notification(void);
-void cpu_unregister_notification(void);
+extern int cpu_manager_init(void);
+extern void cpu_manager_cleanup(void);
+extern void cpu_register_notification(void);
+extern void cpu_unregister_notification(void);
 extern int pstate_cpu_get_sample(void);
-int cpu_fstats_expose(struct tfmg_fstats *);
-void cpu_fstats_cleanup(struct tfmg_fstats *);
-#else
-inline int cpu_manager_init(void) { return 0; };
-inline void cpu_manager_cleanup(void) {};
-inline void cpu_register_notification(void) {};
-inline void cpu_unregister_notification(void) {};
-inline int pstate_cpu_get_sample(void) { return 0; };
-inline int cpu_fstats_expose(struct tfmg_fstats *fstats) { return 0; };
-inline void cpu_fstats_cleanup(struct tfmg_fstats *fstats) {};
-#endif
+extern int cpu_fstats_expose(struct tfmg_fstats *);
+extern void cpu_fstats_cleanup(struct tfmg_fstats *);
 
 extern struct cpudata *cpu_data;
 
@@ -158,21 +148,12 @@ struct gpudata {
 	spinlock_t gpu_lock;
 };
 
-#ifdef CONFIG_DRM_I915_MODULE
-int gpu_manager_init(void);
-void gpu_manager_cleanup(void);
-void gpu_register_notification(void);
-void gpu_unregister_notification(void);
-int gpu_fstats_expose(struct tfmg_fstats *);
-void gpu_fstats_cleanup(struct tfmg_fstats *);
-#else
-inline int gpu_manager_init(void) { return 0; };
-inline void gpu_manager_cleanup(void) {};
-inline void gpu_register_notification(void) {};
-inline void gpu_unregister_notification(void) {};
-inline int gpu_fstats_expose(struct tfmg_fstats *fstats) { return 0; };
-inline void gpu_fstats_cleanup(struct tfmg_fstats *fstats) {};
-#endif
+extern int gpu_manager_init(void);
+extern void gpu_manager_cleanup(void);
+extern void gpu_register_notification(void);
+extern void gpu_unregister_notification(void);
+extern int gpu_fstats_expose(struct tfmg_fstats *);
+extern void gpu_fstats_cleanup(struct tfmg_fstats *);
 
 extern struct gpudata *gpu_data;
 

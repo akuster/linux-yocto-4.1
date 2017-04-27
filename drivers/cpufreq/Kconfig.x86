@@ -17,7 +17,7 @@ config X86_INTEL_PSTATE
 
 config X86_INTEL_TFM_GOVERNOR
        tristate "Intel CPU/GPU Turbo Frequency Mode (TFM) governor"
-       depends on X86 && (X86_INTEL_PSTATE || DRM_I915)
+       depends on X86 && (X86_INTEL_PSTATE || DRM_I915) && m
        help
           This driver is to manage the Turbo Frequency Mode (TFM)
 	  usage and budget over the processor lifetime to keep the

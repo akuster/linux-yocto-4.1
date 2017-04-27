@@ -31,6 +31,7 @@
 * @brief          This file implements a GPU turbo usage control
 */
 
+#if defined(CONFIG_DRM_I915) || defined(CONFIG_DRM_I915_MODULE)
 #include <linux/cpufreq.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -330,3 +331,11 @@ void gpu_manager_cleanup(void)
 	kfree(gpu_data->stats);
 	kfree(gpu_data);
 }
+#else
+int gpu_manager_init(void) { return 0; };
+void gpu_manager_cleanup(void) {};
+void gpu_register_notification(void) {};
+void gpu_unregister_notification(void) {};
+int gpu_fstats_expose(struct tfmg_fstats *fstats) { return 0; };
+void gpu_fstats_cleanup(struct tfmg_fstats *fstats) {};
+#endif
