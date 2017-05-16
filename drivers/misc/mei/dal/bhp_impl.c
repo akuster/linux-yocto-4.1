@@ -120,19 +120,14 @@ struct RR_MAP_INFO {
  */
 static void rrmap_dump(struct list_head *rr_map_header)
 {
-	struct list_head *pos;
-	struct RR_MAP_INFO *rrmap_info;
-	size_t count;
+	struct RR_MAP_INFO *pos;
+	unsigned int count;
 
 	count = 0;
-
-	list_for_each(pos, rr_map_header) {
-		rrmap_info = list_entry(pos, struct RR_MAP_INFO, link);
-		if (rrmap_info) {
-			pr_debug("[%02x] seq: %llu, rr->addr: %llu",
-				 count, rrmap_info->seq, rrmap_info->rr->addr);
-			count++;
-		}
+	list_for_each_entry(pos, rr_map_header, link) {
+		pr_debug("[%02x] seq: %llu, rr->addr: %llu",
+			 count, pos->seq, pos->rr->addr);
+		count++;
 	}
 }
 #endif
@@ -149,13 +144,11 @@ static void rrmap_dump(struct list_head *rr_map_header)
 static struct RR_MAP_INFO *rrmap_find_by_addr(struct list_head *rr_map_header,
 					      u64 seq)
 {
-	struct list_head *pos;
-	struct RR_MAP_INFO *rrmap_info;
+	struct RR_MAP_INFO *pos;
 
-	list_for_each(pos, rr_map_header) {
-		rrmap_info = list_entry(pos, struct RR_MAP_INFO, link);
-		if (rrmap_info && rrmap_info->seq == seq)
-			return rrmap_info;
+	list_for_each_entry(pos, rr_map_header, link) {
+		if (pos->seq == seq)
+			return pos;
 	}
 
 	return NULL;
@@ -589,15 +582,11 @@ static int bh_recv_message(int conn_idx, u64 *seq)
  */
 static int free_rr_list(int conn_idx)
 {
-	struct list_head *pos, *tmp;
-	struct RR_MAP_INFO *rrmap_info;
+	struct RR_MAP_INFO *pos, *next;
 
-	list_for_each_safe(pos, tmp, &dal_dev_rr_list[conn_idx]) {
-		rrmap_info = list_entry(pos, struct RR_MAP_INFO, link);
-		if (rrmap_info) {
-			list_del(pos);
-			kfree(rrmap_info);
-		}
+	list_for_each_entry_safe(pos, next, &dal_dev_rr_list[conn_idx], link) {
+		list_del(&pos->link);
+		kfree(pos);
 	}
 
 	INIT_LIST_HEAD(&dal_dev_rr_list[conn_idx]);
