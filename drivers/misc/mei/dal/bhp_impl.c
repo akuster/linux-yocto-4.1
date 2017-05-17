@@ -237,11 +237,11 @@ static struct bh_response_record *addr2record(int conn_idx, u64 seq)
 }
 
 /**
- * destroy_session - release session's response record memory
+ * session_destroy - release session's response record memory
  *
  * @session: session's response record
  */
-static void destroy_session(struct bh_response_record *session)
+static void session_destroy(struct bh_response_record *session)
 {
 	if (session)
 		kfree(session->buffer);
@@ -318,7 +318,7 @@ void session_exit(int conn_idx, struct bh_response_record *session,
 		if (unlock_session)
 			mutex_exit(session->session_lock);
 
-		destroy_session(session);
+		session_destroy(session);
 	} else {
 		if (unlock_session)
 			mutex_exit(session->session_lock);
@@ -348,7 +348,7 @@ void session_close(int conn_idx, struct bh_response_record *session,
 		rrmap_remove(conn_idx, seq, true);
 		if (unlock_session)
 			mutex_exit(session->session_lock);
-		destroy_session(session);
+		session_destroy(session);
 	} else {
 		session->killed = true;
 		if (unlock_session)
@@ -375,7 +375,7 @@ static void session_kill(int conn_idx, struct bh_response_record *session,
 	session->killed = true;
 	if (session->count == 0) {
 		rrmap_remove(conn_idx, seq, true);
-		destroy_session(session);
+		session_destroy(session);
 	}
 	mutex_exit(connections[conn_idx].bhm_rrmap);
 }
