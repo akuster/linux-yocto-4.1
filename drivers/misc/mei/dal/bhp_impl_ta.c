@@ -121,6 +121,9 @@ int dal_uuid_be_to_bin(const char *uuid_str, uuid_be *uuid)
 {
 	char __uuid_str[UUID_STRING_LEN + 1];
 
+	if (!uuid_str || !uuid)
+		return -EINVAL;
+
 	if (uuid_is_valid_hyphenless(uuid_str)) {
 		uuid_normalize_hyphenless(uuid_str, __uuid_str);
 		uuid_str = __uuid_str;
