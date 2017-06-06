@@ -65,16 +65,16 @@
 
 #include "bh_errcode.h"
 
-int bhp_open_ta_session(u64 *session,
+int bhp_open_ta_session(u64 *host_id,
 			const char *ta_id,
 			const u8 *ta_pkg,
 			size_t pkg_len,
 			const u8 *init_param,
 			size_t init_len);
 
-int bhp_close_ta_session(const u64 handle);
+int bhp_close_ta_session(u64 host_id);
 
-int bhp_send_and_recv(const u64 handle,
+int bhp_send_and_recv(u64 host_id,
 		      int command_id,
 		      const void *input,
 		      size_t length,

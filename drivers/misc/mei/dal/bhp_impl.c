@@ -67,87 +67,47 @@
 
 /* BPH initialization state */
 static atomic_t bhp_state = ATOMIC_INIT(0);
-static u64 sequence_number = MSG_SEQ_START_NUMBER;
+static u64 host_id_number = MSG_SEQ_START_NUMBER;
 
 /*
- * dal device response records list (array of list per dal device)
- * represents connection to dal fw client
+ * dal device session records list (array of list per dal device)
+ * represents opened sessions to dal fw client
  */
-static struct list_head dal_dev_rr_list[MAX_CONNECTIONS];
+static struct list_head dal_dev_session_list[MAX_CONNECTIONS];
 
 /**
- * increment_sequence_number - increase the shared variable sequence_number
- *                             by 1 and wrap around if needed
+ * get_msg_host_id - increase the shared variable host_id_number by 1
+ *                   and wrap around if needed
  *
- * Return: the updated sequence number
+ * Return: the updated host id number
  */
-static u64 increment_sequence_number(void)
+u64 get_msg_host_id(void)
 {
-	u64 ret = 0;
-
-	mutex_enter(bhm_seqno);
-	sequence_number++;
+	host_id_number++;
 	/* wrap around. sequence_number must
 	 * not be 0, as required by Firmware VM
 	 */
-	if (sequence_number == 0)
-		sequence_number = MSG_SEQ_START_NUMBER;
+	if (host_id_number == 0)
+		host_id_number = MSG_SEQ_START_NUMBER;
 
-	ret = sequence_number;
-	mutex_exit(bhm_seqno);
-
-	return ret;
+	return host_id_number;
 }
 
 /**
- * struct RR_MAP_INFO - response record information
+ * session_find - find session record by handle
  *
- * @link: link in rr_map_list of dal fw client
- * @seq: message sequence
- * @rr: response record
- */
-struct RR_MAP_INFO {
-	struct list_head link;
-	u64 seq;
-	struct bh_response_record *rr;
-};
-
-#if 0 /* for debug */
-/**
- * rrmap_dump - dump response record information
+ * @conn_idx: fw client connection idx
+ * @host_id: session host id
  *
- * @rr_map_header: response record list
+ * Return: pointer to bh_session_record if found
+ *         NULL if the session wasn't found
  */
-static void rrmap_dump(struct list_head *rr_map_header)
+struct bh_session_record *session_find(int conn_idx, u64 host_id)
 {
-	struct RR_MAP_INFO *pos;
-	unsigned int count;
+	struct bh_session_record *pos;
 
-	count = 0;
-	list_for_each_entry(pos, rr_map_header, link) {
-		pr_debug("[%02x] seq: %llu, rr->addr: %llu",
-			 count, pos->seq, pos->rr->addr);
-		count++;
-	}
-}
-#endif
-
-/**
- * rrmap_find_by_addr - find response record by sequence
- *
- * @rr_map_header: response record list
- * @seq: sequence number
- *
- * Return: pointer to RR_MAP_INFO if found
- *         NULL if the response record wasn't found
- */
-static struct RR_MAP_INFO *rrmap_find_by_addr(struct list_head *rr_map_header,
-					      u64 seq)
-{
-	struct RR_MAP_INFO *pos;
-
-	list_for_each_entry(pos, rr_map_header, link) {
-		if (pos->seq == seq)
+	list_for_each_entry(pos, &dal_dev_session_list[conn_idx], link) {
+		if (pos->host_id == host_id)
 			return pos;
 	}
 
@@ -155,258 +115,61 @@ static struct RR_MAP_INFO *rrmap_find_by_addr(struct list_head *rr_map_header,
 }
 
 /**
- * rrmap_add - add response record to list and return the new sequence
+ * session_add - add session record to list
  *
  * @conn_idx: fw client connection idx
- * @rr: response record
- *
- * Return: sequence of the new response record
+ * @session: session record
  */
-u64 rrmap_add(int conn_idx, struct bh_response_record *rr)
+void session_add(int conn_idx, struct bh_session_record *session)
 {
-	u64 seq = increment_sequence_number();
-	struct RR_MAP_INFO *rrmap_info;
-
-	/* TODO: check if malloc succeeded: need to refactor the usage
-	 * of rrmap_add() to check and handle errors
-	 */
-	rrmap_info = kzalloc(sizeof(*rrmap_info), GFP_KERNEL);
-
-	rrmap_info->seq = seq;
-	rrmap_info->rr = rr;
-
-	list_add_tail(&rrmap_info->link, &dal_dev_rr_list[conn_idx]);
-
-	return rrmap_info->seq;
+	list_add_tail(&session->link, &dal_dev_session_list[conn_idx]);
 }
 
 /**
- * rrmap_remove - remove response record from list
+ * session_remove - remove session record from list, ad release its memory
  *
  * @conn_idx: fw client connection idx
- * @seq: sequence number
- * @remove_record: remove record flag. used to remove session records
- *
- * in the original BHP they use a map, in the kernel we don't have a map.
- * we're using a list.
- * in BHP they simply delete an element from the map.
- * so in order to remove a record which is a session we added a parameter
- * 'remove_record'
- *
- * Return: pointer to the removed response record
+ * @host_id: session host id
  */
-static struct bh_response_record *rrmap_remove(int conn_idx, u64 seq,
-					       bool remove_record)
+void session_remove(int conn_idx, u64 host_id)
 {
-	struct RR_MAP_INFO *rrmap_info;
-	struct bh_response_record *rr = NULL;
+	struct bh_session_record *session;
 
-	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
+	session = session_find(conn_idx, host_id);
 
-	if (rrmap_info) {
-		rr = rrmap_info->rr;
-		if (!rr->is_session || remove_record) {
-			list_del_init(&rrmap_info->link);
-			kfree(rrmap_info);
-		}
+	if (session) {
+		list_del(&session->link);
+		kfree(session);
 	}
-
-	return rr;
-}
-
-/**
- * addr2record - get response record by sequence number
- *
- * @conn_idx: fw client connection idx
- * @seq: sequence number
- *
- * Return: pointer to the response record
- *         NULL if it wasn't found
- */
-static struct bh_response_record *addr2record(int conn_idx, u64 seq)
-{
-	struct bh_response_record *rr = NULL;
-	struct RR_MAP_INFO *rrmap_info;
-
-	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
-
-	if (rrmap_info)
-		rr = rrmap_info->rr;
-
-	return rr;
-}
-
-/**
- * session_destroy - release session's response record memory
- *
- * @session: session's response record
- */
-static void session_destroy(struct bh_response_record *session)
-{
-	if (session)
-		kfree(session->buffer);
-	kfree(session);
-}
-
-/**
- * session_enter - increase session count in response record
- *
- * @conn_idx: fw client connection idx
- * @seq: sequence number
- * @lock_session: catch session mutex flag
- *
- * Return: pointer to the response record
- */
-struct bh_response_record *session_enter(int conn_idx, u64 seq,
-					 int lock_session)
-{
-	struct bh_response_record *session = NULL;
-	struct RR_MAP_INFO *rrmap_info;
-
-	mutex_enter(connections[conn_idx].bhm_rrmap);
-
-	rrmap_info = rrmap_find_by_addr(&dal_dev_rr_list[conn_idx], seq);
-
-	if (rrmap_info) {
-		if (rrmap_info->rr->is_session && !rrmap_info->rr->killed) {
-			session = rrmap_info->rr;
-
-			if (session->count < MAX_SESSION_LIMIT)
-				session->count++;
-			else
-				session = NULL;
-		}
-	}
-
-	mutex_exit(connections[conn_idx].bhm_rrmap);
-
-	if (session && lock_session) {
-		mutex_enter(session->session_lock);
-
-		/* check whether session has been
-		 * killed before session operation
-		 */
-		if (session->killed) {
-			session_exit(conn_idx, session, seq, 1);
-			session = NULL;
-		}
-	}
-
-	return session;
-}
-
-/**
- * session_exit - decrease session count in response record
- *
- * When the session count is 0 and the session is killed,
- * remove the response record from the list and free it
- *
- * @conn_idx: fw client connection idx
- * @session: the response record
- * @seq: sequence number
- * @unlock_session: release session mutex flag
- */
-void session_exit(int conn_idx, struct bh_response_record *session,
-		  u64 seq, int unlock_session)
-{
-	mutex_enter(connections[conn_idx].bhm_rrmap);
-	session->count--;
-
-	if (session->count == 0 && session->killed) {
-		rrmap_remove(conn_idx, seq, true);
-
-		if (unlock_session)
-			mutex_exit(session->session_lock);
-
-		session_destroy(session);
-	} else {
-		if (unlock_session)
-			mutex_exit(session->session_lock);
-	}
-
-	mutex_exit(connections[conn_idx].bhm_rrmap);
-}
-
-/**
- * session_close - decrease session count in response record
- *
- * When the session count is 0, remove the response record
- * from the list and free it
- *
- * @conn_idx: fw client connection idx
- * @session: the response record
- * @seq: sequence number
- * @unlock_session: release session mutex flag
- */
-void session_close(int conn_idx, struct bh_response_record *session,
-		   u64 seq, int unlock_session)
-{
-	mutex_enter(connections[conn_idx].bhm_rrmap);
-	session->count--;
-
-	if (session->count == 0) {
-		rrmap_remove(conn_idx, seq, true);
-		if (unlock_session)
-			mutex_exit(session->session_lock);
-		session_destroy(session);
-	} else {
-		session->killed = true;
-		if (unlock_session)
-			mutex_exit(session->session_lock);
-	}
-
-	mutex_exit(connections[conn_idx].bhm_rrmap);
-}
-
-/**
- * session_kill - set session killed flag
- *
- * When the session count is 0, remove the response record
- * from the list and free it
- *
- * @conn_idx: fw client connection idx
- * @session: the response record
- * @seq: sequence number
- */
-static void session_kill(int conn_idx, struct bh_response_record *session,
-			 u64 seq)
-{
-	mutex_enter(connections[conn_idx].bhm_rrmap);
-	session->killed = true;
-	if (session->count == 0) {
-		rrmap_remove(conn_idx, seq, true);
-		session_destroy(session);
-	}
-	mutex_exit(connections[conn_idx].bhm_rrmap);
 }
 
 static char skip_buffer[DAL_MAX_BUFFER_SIZE] = {0};
 /**
  * bh_transport_recv - receive message from FW, using kdi callback 'kdi_recv'
  *
- * @handle: session handle
+ * @conn_idx: fw client connection idx
  * @buffer: output buffer to hold the received message
  * @size: output buffer size
  *
  * Return: 0 on success
  *         <0 on failure
  */
-static int bh_transport_recv(unsigned int handle, void *buffer, size_t size)
+static int bh_transport_recv(unsigned int conn_idx, void *buffer, size_t size)
 {
 	size_t got;
 	size_t count = 0;
 	int ret;
 	char *buf = buffer;
 
-	if (handle > DAL_MEI_DEVICE_MAX)
+	if (conn_idx > DAL_MEI_DEVICE_MAX)
 		return -ENODEV;
 
 	while (size - count > 0) {
 		got = min_t(size_t, size - count, DAL_MAX_BUFFER_SIZE);
 		if (buf)
-			ret = kdi_recv(handle, buf + count, &got);
+			ret = kdi_recv(conn_idx, buf + count, &got);
 		else
-			ret = kdi_recv(handle, skip_buffer, &got);
+			ret = kdi_recv(conn_idx, skip_buffer, &got);
 
 		if (ret)
 			return ret;
@@ -423,28 +186,28 @@ static int bh_transport_recv(unsigned int handle, void *buffer, size_t size)
 /**
  * bh_transport_send - send message to FW, using kdi callback 'kdi_send'
  *
- * @handle: session handle
+ * @conn_idx: fw client connection idx
  * @buffer: message to send
  * @size: message size
- * @seq: message sequence
+ * @host_id: message host id
  *
  * Return: 0 on success
  *         <0 on failure
  */
-static int bh_transport_send(unsigned int handle, const void *buffer,
-			     unsigned int size, u64 seq)
+static int bh_transport_send(unsigned int conn_idx, const void *buffer,
+			     unsigned int size, u64 host_id)
 {
 	size_t chunk_sz;
 	unsigned int count = 0;
 	int ret;
 	const char *buf = buffer;
 
-	if (handle > DAL_MEI_DEVICE_MAX)
+	if (conn_idx > DAL_MEI_DEVICE_MAX)
 		return -ENODEV;
 
 	while (size - count > 0) {
 		chunk_sz = min_t(size_t, size - count, DAL_MAX_BUFFER_SIZE);
-		ret = kdi_send(handle, buf + count, chunk_sz, seq);
+		ret = kdi_send(conn_idx, buf + count, chunk_sz, host_id);
 		if (ret)
 			return ret;
 
@@ -458,44 +221,36 @@ static int bh_transport_send(unsigned int handle, const void *buffer,
  * bh_send_message - build and send command message to FW
  *
  * @conn_idx: fw client connection idx
- * @cmd: command header
- * @clen: command header length
+ * @hdr: command header
+ * @hdr_len: command header length
  * @data: command data (message content)
- * @dlen: data length
- * @seq: message sequence
+ * @data_len: data length
+ * @host_id: message host id
  *
  * Return: 0 on success
  *         <0 on failure
  */
-static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
-			   const void *data, unsigned int dlen, u64 seq)
+static int bh_send_message(int conn_idx,
+			   void *hdr, unsigned int hdr_len,
+			   const void *data, unsigned int data_len,
+			   u64 host_id)
 {
 	int ret;
-	struct bh_response_record *rr = addr2record(conn_idx, seq);
 	struct bhp_command_header *h = NULL;
-
-	if (!rr)
-		return -EFAULT;
 
 	mutex_enter(connections[conn_idx].bhm_send);
 
-	if (clen < sizeof(*h) || !cmd || !rr)
+	if (hdr_len < sizeof(*h) || !hdr)
 		return -EINVAL;
 
-	rr->buffer = NULL;
-	rr->length = 0;
-
-	h = cmd;
+	h = hdr;
 	h->h.magic = BH_MSG_CMD_MAGIC;
-	h->h.length = clen + dlen;
-	h->seq = seq;
+	h->h.length = hdr_len + data_len;
+	h->seq = host_id;
 
-	ret = bh_transport_send(conn_idx, cmd, clen, seq);
-	if (!ret && dlen > 0)
-		ret = bh_transport_send(conn_idx, data, dlen, seq);
-
-	if (ret)
-		rrmap_remove(conn_idx, seq, false);
+	ret = bh_transport_send(conn_idx, hdr, hdr_len, host_id);
+	if (!ret && data_len > 0)
+		ret = bh_transport_send(conn_idx, data, data_len, host_id);
 
 	mutex_exit(connections[conn_idx].bhm_send);
 
@@ -506,20 +261,21 @@ static int bh_send_message(int conn_idx, void *cmd, unsigned int clen,
  * bh_recv_message - receive and prosses message from FW
  *
  * @conn_idx: fw client connection idx
- * @seq: output param to hold the message sequence number
+ * @rr: response record to hold the received message
+ * @out_host_id: output param to hold the received message host id
+ *               it should be identical to the sent message host id
  *
  * Return: 0 on success
  *         <0 on failure
  */
-static int bh_recv_message(int conn_idx, u64 *seq)
+static int bh_recv_message(int conn_idx, struct bh_response_record *rr,
+			   u64 *out_host_id)
 {
 	int ret;
 	struct bhp_response_header headbuf;
 	struct bhp_response_header *head = &headbuf;
 	char *data = NULL;
-	unsigned int dlen = 0;
-	struct bh_response_record *rr = NULL;
-	int session_killed;
+	unsigned int data_len = 0;
 
 	ret = bh_transport_recv(conn_idx, head, sizeof(*head));
 	if (ret)
@@ -529,20 +285,17 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 	if (head->h.magic != BH_MSG_RESP_MAGIC)
 		return -EBADMSG;
 
-	/* verify rr */
-	rr = rrmap_remove(conn_idx, head->seq, false);
-
 	if (head->h.length > sizeof(*head)) {
-		dlen = head->h.length - sizeof(*head);
-		data = kzalloc(dlen, GFP_KERNEL);
-		ret = bh_transport_recv(conn_idx, data, dlen);
+		data_len = head->h.length - sizeof(*head);
+		data = kzalloc(data_len, GFP_KERNEL);
+		ret = bh_transport_recv(conn_idx, data, data_len);
 		if (!ret && !data)
 			ret = -ENOMEM;
 	}
 
 	if (rr) {
 		rr->buffer = data;
-		rr->length = dlen;
+		rr->length = data_len;
 
 		if (!ret)
 			rr->code = head->code;
@@ -550,61 +303,33 @@ static int bh_recv_message(int conn_idx, u64 *seq)
 			rr->code = ret;
 
 		if (head->ta_session_id)
-			rr->addr = head->ta_session_id;
-
-		session_killed = (rr->is_session &&
-				  (rr->code == BHE_WD_TIMEOUT ||
-				  rr->code == BHE_UNCAUGHT_EXCEPTION ||
-				  rr->code == BHE_APPLET_CRASHED));
-
-		/* set killed flag before wake up send_wait thread */
-		if (session_killed) {
-			rr->killed = true;
-			session_kill(conn_idx, rr, head->seq);
-		}
-
+			rr->ta_session_id = head->ta_session_id;
 	} else {
 		kfree(data);
 	}
 
-	if (seq)
-		*seq = head->seq;
+	if (out_host_id)
+		*out_host_id = head->seq;
 
 	return ret;
 }
 
 /**
- * free_rr_list - free response record list of given dal fw client
+ * free_session_list - free session list of given dal fw client
  *
  * @conn_idx: fw client connection idx
- *
- * Return: 0
  */
-static int free_rr_list(int conn_idx)
+static void free_session_list(int conn_idx)
 {
-	struct RR_MAP_INFO *pos, *next;
+	struct bh_session_record *pos, *next;
 
-	list_for_each_entry_safe(pos, next, &dal_dev_rr_list[conn_idx], link) {
+	list_for_each_entry_safe(pos, next, &dal_dev_session_list[conn_idx],
+				 link) {
 		list_del(&pos->link);
 		kfree(pos);
 	}
 
-	INIT_LIST_HEAD(&dal_dev_rr_list[conn_idx]);
-
-	return 0;
-}
-
-/**
- * bh_connections_init - init dal fw clients connections
- *
- * Init the response record list of all dal devices (dal fw clients)
- */
-static void bh_connections_init(void)
-{
-	int i;
-
-	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
-		INIT_LIST_HEAD(&dal_dev_rr_list[i]);
+	INIT_LIST_HEAD(&dal_dev_session_list[conn_idx]);
 }
 
 /**
@@ -617,7 +342,7 @@ static void bh_connections_deinit(void)
 	int i;
 
 	for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
-		free_rr_list(i);
+		free_session_list(i);
 }
 
 #define MAX_RETRY_COUNT 3
@@ -625,41 +350,45 @@ static void bh_connections_deinit(void)
  * bh_request - send request to FW and receive response back
  *
  * @conn_idx: fw client connection idx
- * @cmd: command header
- * @clen: command header length
+ * @hdr: command header
+ * @hdr_len: command header length
  * @data: command data (message content)
- * @dlen: data length
- * @seq: message sequence
+ * @data_len: data length
+ * @host_id: message host id
+ * @rr: response record to hold the received message
  *
  * Return: 0 on success
  *         <0 on failure
  */
-int bh_request(int conn_idx, void *cmd, unsigned int clen,
-	       const void *data, unsigned int dlen, u64 seq)
+int bh_request(int conn_idx,
+	       void *hdr, unsigned int hdr_len,
+	       const void *data, unsigned int data_len,
+	       u64 host_id, struct bh_response_record *rr)
 {
 	int ret;
 	u32 retry_count;
-	u64 seq_response = 0;
+	u64 res_host_id;
 
-	ret = bh_send_message(conn_idx, cmd, clen, data, dlen, seq);
+	ret = bh_send_message(conn_idx, hdr, hdr_len, data, data_len, host_id);
 	if (ret)
 		return ret;
 
 	for (retry_count = 0; retry_count < MAX_RETRY_COUNT; retry_count++) {
-		ret = bh_recv_message(conn_idx, &seq_response);
+		res_host_id = 0;
+		ret = bh_recv_message(conn_idx, rr, &res_host_id);
 		if (ret) {
 			pr_debug("failed to recv msg = %d\n", ret);
 			continue;
 		}
 
-		if (seq_response != seq) {
-			pr_debug("recv message with seq=%llu != seq_response=%llu\n",
-				 seq, seq_response);
+		if (res_host_id != host_id) {
+			pr_debug("recv message with host_id=%llu != sent host_id=%llu\n",
+				 res_host_id, host_id);
 			continue;
 		}
 
-		pr_debug("recv message with try=%d seq=%llu\n",
-			 retry_count, seq_response);
+		pr_debug("recv message with try=%d host_id=%llu\n",
+			 retry_count, res_host_id);
 		break;
 	}
 
@@ -685,12 +414,18 @@ bool bhp_is_initialized(void)
 /**
  * bhp_init_internal - Beihai plugin init function
  *
+ * The plugin initialization includes initializing the session lists of all
+ * dal devices (dal fw clients)
+ *
  * Return: 0
  */
 void bhp_init_internal(void)
 {
+	int i;
+
 	if (atomic_add_unless(&bhp_state, 1, 1))
-		bh_connections_init();
+		for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
+			INIT_LIST_HEAD(&dal_dev_session_list[i]);
 }
 
 /**

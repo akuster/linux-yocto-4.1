@@ -134,7 +134,7 @@ static int to_kdi_err(int err)
 /**
  * kdi_send - a callback which is called from bhp to send msg over mei
  *
- * @handle: DAL device type
+ * @dev_idx: DAL device type
  * @buf: message buffer
  * @len: buffer length
  * @seq: message sequence
@@ -145,7 +145,7 @@ static int to_kdi_err(int err)
  *         -EFAULT if client is NULL
  *         <0 on dal_write failure
  */
-int kdi_send(unsigned int handle, const unsigned char *buf,
+int kdi_send(unsigned int dev_idx, const unsigned char *buf,
 	     size_t len, u64 seq)
 {
 	enum dal_dev_type mei_device;
@@ -155,17 +155,19 @@ int kdi_send(unsigned int handle, const unsigned char *buf,
 	ssize_t wr;
 	int ret;
 
-	mei_device = (enum dal_dev_type)handle;
-
 	if (!buf)
 		return -EINVAL;
 
-	if (mei_device < DAL_MEI_DEVICE_IVM || mei_device >= DAL_MEI_DEVICE_MAX)
+	if (dev_idx >= DAL_MEI_DEVICE_MAX)
 		return -EINVAL;
 
 	if (!len)
 		return 0;
 
+	if (len > DAL_MAX_BUFFER_SIZE)
+		return -EMSGSIZE;
+
+	mei_device = (enum dal_dev_type)dev_idx;
 	dev = dal_find_dev(mei_device);
 	if (!dev) {
 		dev_dbg(dev, "can't find device\n");
@@ -195,7 +197,7 @@ out:
 /**
  * kdi_recv - a callback which is called from bhp to recv msg from FW
  *
- * @handle: DAL device type
+ * @dev_idx: DAL device type
  * @buf: buffer of received message
  * @count: input and output param -
  *       - input: buffer length
@@ -208,7 +210,7 @@ out:
  *         -EMSGSIZE when buffer is too small
  *         <0 on dal_wait_for_read failure
  */
-int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count)
+int kdi_recv(unsigned int dev_idx, unsigned char *buf, size_t *count)
 {
 	enum dal_dev_type mei_device;
 	struct dal_device *ddev;
@@ -217,14 +219,13 @@ int kdi_recv(unsigned int handle, unsigned char *buf, size_t *count)
 	int ret;
 	size_t len;
 
-	mei_device = (enum dal_dev_type)handle;
-
 	if (!buf || !count)
 		return -EINVAL;
 
-	if (mei_device < DAL_MEI_DEVICE_IVM || mei_device >= DAL_MEI_DEVICE_MAX)
+	if (dev_idx >= DAL_MEI_DEVICE_MAX)
 		return -EINVAL;
 
+	mei_device = (enum dal_dev_type)dev_idx;
 	dev = dal_find_dev(mei_device);
 	if (!dev)
 		return -ENODEV;

@@ -74,26 +74,32 @@
  * struct bh_response_record - response record
  *
  * @code: response code
+ *        0 on success
+ *        <0 on system failure
+ *        >0 on FW failure
+ * @ta_session_id: session id
  * @length: response buffer length
  * @buffer: response buffer
- * @addr: session id (FW address)
- * @is_session: flag points whether this record is session response record
- * @killed: session killed flag (relevant when is_session flag is set)
- * @count: count of users using this session, should be 0 or 1
- *         (relevant when is_session flag is set)
  */
 struct bh_response_record {
 	int code;
+	u64 ta_session_id;
 	unsigned int length;
 	void *buffer;
-	u64 addr;
-	bool is_session;
-	bool killed;
-	unsigned int count;
 };
 
-/* maximum concurrent activities on one session */
-#define MAX_SESSION_LIMIT 20
+/**
+ * struct bh_session_record - session record
+ *
+ * @link: link in dal_dev_session_list of dal fw client
+ * @host_id: message/session host id
+ * @ta_session_id: session id
+ */
+struct bh_session_record {
+	struct list_head link;
+	u64 host_id;
+	u64 ta_session_id;
+};
 
 /* heci command header buffer size in bytes */
 #define CMDBUF_SIZE 100
@@ -126,19 +132,14 @@ bool bhp_is_initialized(void);
 void bhp_init_internal(void);
 void bhp_deinit_internal(void);
 
-u64 rrmap_add(int conn_idx, struct bh_response_record *rr);
+u64 get_msg_host_id(void);
+struct bh_session_record *session_find(int conn_idx, u64 seq);
+void session_add(int conn_idx, struct bh_session_record *session);
+void session_remove(int conn_idx, u64 seq);
 
-struct bh_response_record *session_enter(int conn_idx, u64 seq,
-					 int lock_session);
-
-void session_exit(int conn_idx, struct bh_response_record *session,
-		  u64 seq, int unlock_session);
-
-void session_close(int conn_idx, struct bh_response_record *session,
-		   u64 seq, int unlock_session);
-
-int bh_request(int conn_idx, void *cmd, unsigned int clen,
-	       const void *data, unsigned int dlen, u64 seq);
+int bh_request(int conn_idx, void *hdr, unsigned int hdr_len,
+	       const void *data, unsigned int data_len,
+	       u64 host_id, struct bh_response_record *rr);
 
 const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len);
 
