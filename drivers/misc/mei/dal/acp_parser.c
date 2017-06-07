@@ -58,23 +58,30 @@
  *
  *****************************************************************************/
 
-/*
- * @file  admin_pack_int.cpp
- * @brief This file implements internal atomic api of admin command parsing
- *        The counter part which generate admin package is BPKT
- * @author Wenlong Feng(wenlong.feng@intel.com)
- */
-
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/errno.h>
 
-#include "bh_errcode.h"
-#include "bh_acp_format.h"
-#include "bh_acp_internal.h"
-#include "bh_acp_exp.h"
+#include "acp_format.h"
+#include "acp_parser.h"
 
 #define PR_ALIGN 4
+
+/* Intel CSS Header + CSS Cypto Block which prefixes each signed ACP pkg */
+#define BH_ACP_CSS_HEADER_LENGTH    (128 + 520)
+
+/**
+ * struct pack_reader - reading acp state
+ *
+ * @cur   : current read position
+ * @head  : acp file head
+ * @total : size of acp file
+ */
+struct pack_reader {
+	const char *cur;
+	const char *head;
+	unsigned int total;
+};
 
 /**
  * pr_init - init pack reader
@@ -86,7 +93,7 @@
  * Return: 0 on success
  *         -EINVAL on invalid parameters
  */
-int pr_init(struct pack_reader *pr, const char *data, unsigned int n)
+static int pr_init(struct pack_reader *pr, const char *data, unsigned int n)
 {
 	/* check integer overflow */
 	if ((size_t)data > SIZE_MAX - n)
@@ -217,7 +224,7 @@ static bool pr_is_safe_to_read(const struct pack_reader *pr, size_t n_move)
  * Return: true when cur is at the end of the acp
  *         false otherwise
  */
-bool pr_is_end(struct pack_reader *pr)
+static bool pr_is_end(struct pack_reader *pr)
 {
 	return (pr->cur == pr->head + pr->total);
 }
@@ -325,7 +332,7 @@ static int acp_load_prop(struct pack_reader *pr, struct bh_prop_list **prop)
  * Return: 0 on success
  *         -EINVAL on invalid parameters
  */
-int acp_load_ta_pack(struct pack_reader *pr, char **ta_pack)
+static int acp_load_ta_pack(struct pack_reader *pr, char **ta_pack)
 {
 	size_t len;
 	char *t;
@@ -379,7 +386,8 @@ static int acp_load_ins_jta_prop_head(struct pack_reader *pr,
  * Return: 0 on success
  *         -EINVAL on invalid parameters
  */
-int acp_load_ins_jta_prop(struct pack_reader *pr, struct ac_ins_jta_prop *pack)
+static int acp_load_ins_jta_prop(struct pack_reader *pr,
+				 struct ac_ins_jta_prop *pack)
 {
 	int ret;
 
@@ -432,7 +440,8 @@ static int acp_load_ins_jta_head(struct pack_reader *pr,
  * Return: 0 on success
  *         -EINVAL on invalid parameters
  */
-int acp_load_ins_jta(struct pack_reader *pr, struct ac_ins_jta_pack *pack)
+static int acp_load_ins_jta(struct pack_reader *pr,
+			    struct ac_ins_jta_pack *pack)
 {
 	int ret;
 
@@ -454,11 +463,100 @@ int acp_load_ins_jta(struct pack_reader *pr, struct ac_ins_jta_pack *pack)
  * Return: 0 on success
  *         -EINVAL on invalid parameters
  */
-int acp_load_pack_head(struct pack_reader *pr, struct ac_pack_header **head)
+static int acp_load_pack_head(struct pack_reader *pr,
+			      struct ac_pack_header **head)
 {
 	if (!pr_is_safe_to_read(pr, sizeof(**head)))
 		return -EINVAL;
 
 	*head = (struct ac_pack_header *)pr->cur;
 	return pr_align_move(pr, sizeof(**head));
+}
+
+/**
+ * acp_load_pack - load and parse pack from acp file
+ *
+ * @raw_pack: acp file content, without the acp CSS header
+ * @size: acp file size (without CSS header)
+ * @cmd_id: command id
+ * @pack: out param to hold the loaded pack
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
+static int acp_load_pack(const char *raw_pack, unsigned int size,
+			 unsigned int cmd_id, struct ac_pack *pack)
+{
+	int ret;
+	struct pack_reader pr;
+	struct ac_ins_jta_pack_ext *pack_ext;
+	struct ac_ins_jta_prop_ext *prop_ext;
+
+	ret = pr_init(&pr, raw_pack, size);
+	if (ret)
+		return ret;
+
+	if (cmd_id != AC_INSTALL_JTA_PROP) {
+		ret = acp_load_pack_head(&pr, &pack->head);
+		if (ret)
+			return ret;
+	}
+
+	if (cmd_id != AC_INSTALL_JTA_PROP && cmd_id != pack->head->cmd_id)
+		return -EINVAL;
+
+	switch (cmd_id) {
+	case AC_INSTALL_JTA:
+		pack_ext = (struct ac_ins_jta_pack_ext *)pack;
+		ret = acp_load_ins_jta(&pr, &pack_ext->cmd_pack);
+		if (ret)
+			break;
+		ret = acp_load_ta_pack(&pr, &pack_ext->ta_pack);
+		break;
+	case AC_INSTALL_JTA_PROP:
+		prop_ext = (struct ac_ins_jta_prop_ext *)pack;
+		ret = acp_load_ins_jta_prop(&pr, &prop_ext->cmd_pack);
+		if (ret)
+			break;
+		/* Note: the next section is JEFF file,
+		 * and not ta_pack(JTA_properties+JEFF file),
+		 * but we could reuse the ACP_load_ta_pack() here.
+		 */
+		ret = acp_load_ta_pack(&pr, &prop_ext->jeff_pack);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (!pr_is_end(&pr))
+		return -EINVAL;
+
+	return ret;
+}
+
+/**
+ * acp_pload_ins_jta - load and parse ta pack from acp file
+ *
+ * Exported function in acp parser API
+ *
+ * @raw_data: acp file content
+ * @size: acp file size
+ * @pack: out param to hold the ta pack
+ *
+ * Return: 0 on success
+ *         -EINVAL on invalid parameters
+ */
+int acp_pload_ins_jta(const void *raw_data, unsigned int size,
+		      struct ac_ins_jta_pack_ext *pack)
+{
+	int ret;
+
+	if (!raw_data || size <= BH_ACP_CSS_HEADER_LENGTH || !pack)
+		return -EINVAL;
+
+	ret = acp_load_pack((const char *)raw_data + BH_ACP_CSS_HEADER_LENGTH,
+			    size - BH_ACP_CSS_HEADER_LENGTH,
+			    AC_INSTALL_JTA, (struct ac_pack *)pack);
+
+	return ret;
 }

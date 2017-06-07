@@ -76,7 +76,9 @@
 #include <linux/notifier.h>
 #include <linux/dal.h>
 
-#include "bhp_impl.h"
+#include "bh_external.h"
+#include "bh_cmd_defs.h"
+#include "bh_errcode.h"
 #include "dal_dev.h"
 #include "dal_cdev.h"
 

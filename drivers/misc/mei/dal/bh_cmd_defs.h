@@ -64,9 +64,6 @@
 #include <linux/types.h>
 #include <linux/uuid.h>
 
-#include "bh_types.h"
-#include "bh_errcode.h"
-
 /**
  * enum bhp_command_id - bhp command ids
  *

@@ -68,8 +68,9 @@
 #include <linux/sched.h>
 #include <linux/dal.h>
 
-#include "bhp_exp.h"
-#include "bhp_impl.h"
+#include "bh_external.h"
+#include "bh_errcode.h"
+#include "acp_parser.h"
 #include "dal_dev.h"
 
 static DEFINE_MUTEX(kdi_lock);

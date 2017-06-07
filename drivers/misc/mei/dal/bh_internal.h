@@ -57,18 +57,15 @@
  *
  *****************************************************************************/
 
-#ifndef _BHP_IMPL_H_
-#define _BHP_IMPL_H_
+#ifndef __BH_INTERNAL_H
+#define __BH_INTERNAL_H
 
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/bitops.h>
 #include <linux/uuid.h>
 
-#include "bh_types.h"
-#include "bhp_exp.h"
-#include "bh_acp_exp.h"
-#include "bhp_heci.h"
+#include "bh_cmd_defs.h"
 
 /**
  * struct bh_response_record - response record
@@ -104,9 +101,6 @@ struct bh_session_record {
 /* heci command header buffer size in bytes */
 #define CMDBUF_SIZE 100
 
-/* TODO: review to avoid seq conflicts */
-# define MSG_SEQ_START_NUMBER BIT_ULL(32)
-
 /**
  * enum bhp_connection_index - connection index to dal fw clients
  *
@@ -128,39 +122,31 @@ enum bhp_connection_index {
 	MAX_CONNECTIONS
 };
 
-bool bhp_is_initialized(void);
-void bhp_init_internal(void);
-void bhp_deinit_internal(void);
-
 u64 get_msg_host_id(void);
-struct bh_session_record *session_find(int conn_idx, u64 seq);
+struct bh_session_record *session_find(int conn_idx, u64 host_id);
 void session_add(int conn_idx, struct bh_session_record *session);
-void session_remove(int conn_idx, u64 seq);
+void session_remove(int conn_idx, u64 host_id);
 
 int bh_request(int conn_idx, void *hdr, unsigned int hdr_len,
 	       const void *data, unsigned int data_len,
 	       u64 host_id, struct bh_response_record *rr);
 
-const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len);
+int bh_proxy_check_svl_ta_blocked_state(uuid_be ta_id);
 
-typedef int (*bh_filter_func)(const struct bhp_command_header *hdr,
-			      size_t count, void *ctx);
+int bh_proxy_list_jta_packages(int conn_idx, int *count, uuid_be **ta_ids);
 
-int bh_filter_hdr(const struct bhp_command_header *hdr, size_t count, void *ctx,
-		  const bh_filter_func tbl[]);
+int bh_proxy_download_javata(int conn_idx, uuid_be ta_id, const char *ta_pkg,
+			     unsigned int pkg_len);
 
-bool bh_msg_is_cmd_open_session(const struct bhp_command_header *hdr);
+int bh_proxy_openjtasession(int conn_idx, uuid_be ta_id,
+			    const char *init_buffer, unsigned int init_len,
+			    u64 *host_id, const char *ta_pkg,
+			    unsigned int pkg_len);
 
-const uuid_be *bh_open_session_ta_id(const struct bhp_command_header *hdr,
-				     size_t count);
-
-void bh_prep_access_denied_response(const char *cmd,
-				    struct bhp_response_header *res);
-
-bool bh_msg_is_cmd(const void *msg, size_t len);
-bool bh_msg_is_response(const void *msg, size_t len);
+void init_session_list(int conn_idx);
+void free_session_list(int conn_idx);
 
 #define mutex_enter(s) {}
 #define mutex_exit(s)  {}
 
-#endif /* _BHP_IMPL_H_ */
+#endif /* __BH_INTERNAL_H */

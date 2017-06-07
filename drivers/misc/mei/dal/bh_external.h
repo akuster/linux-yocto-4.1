@@ -57,19 +57,46 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
-#ifndef __BH_SHARED_TYPES_H
-#define __BH_SHARED_TYPES_H
 
-#include <linux/types.h>
+#ifndef __BH_EXTERNAL_H
+#define __BH_EXTERNAL_H
 
-#define BH_MAX_PACK_HASH_LEN 32
-/**
- * struct bh_pack_hash - ta pack hash
- *
- * @data: ta hash
- */
-struct bh_pack_hash {
-	u8 data[BH_MAX_PACK_HASH_LEN];
-} __packed;
+#include <linux/kernel.h>
+#include "bh_cmd_defs.h"
 
-#endif /* __BH_SHARED_TYPES_H */
+/* TODO: review to avoid seq conflicts */
+# define MSG_SEQ_START_NUMBER BIT_ULL(32)
+
+bool bhp_is_initialized(void);
+void bhp_init_internal(void);
+void bhp_deinit_internal(void);
+
+int bhp_open_ta_session(u64 *host_id, const char *ta_id, const u8 *ta_pkg,
+			size_t pkg_len,	const u8 *init_param, size_t init_len);
+
+int bhp_close_ta_session(u64 host_id);
+
+int bhp_send_and_recv(u64 host_id, int command_id, const void *input,
+		      size_t length, void **output, size_t *output_length,
+		      int *response_code);
+
+const struct bhp_command_header *bh_msg_cmd_hdr(const void *msg, size_t len);
+
+typedef int (*bh_filter_func)(const struct bhp_command_header *hdr,
+			      size_t count, void *ctx);
+
+int bh_filter_hdr(const struct bhp_command_header *hdr, size_t count, void *ctx,
+		  const bh_filter_func tbl[]);
+
+bool bh_msg_is_cmd_open_session(const struct bhp_command_header *hdr);
+
+const uuid_be *bh_open_session_ta_id(const struct bhp_command_header *hdr,
+				     size_t count);
+
+void bh_prep_access_denied_response(const char *cmd,
+				    struct bhp_response_header *res);
+
+bool bh_msg_is_cmd(const void *msg, size_t len);
+bool bh_msg_is_response(const void *msg, size_t len);
+
+#endif /* __BH_EXTERNAL_H */

@@ -64,7 +64,11 @@
 #include <linux/dal.h>
 
 #include "bh_errcode.h"
-#include "bhp_impl.h"
+#include "bh_external.h"
+#include "bh_internal.h"
+
+/* BHP initialization state */
+static atomic_t bhp_state = ATOMIC_INIT(0);
 
 /**
  * uuid_is_valid_hyphenless - check if uuid is valid in hyphenless format
@@ -230,265 +234,6 @@ static bool bh_session_is_killed(struct bh_response_record *rr)
 	return (rr->code == BHE_WD_TIMEOUT ||
 		rr->code == BHE_UNCAUGHT_EXCEPTION ||
 		rr->code == BHE_APPLET_CRASHED);
-}
-
-/**
- * bh_proxy_check_svl_ta_blocked_state - check if ta security version is blocked
- *
- * When installing a ta, a minimum security version is given,
- * so FW will block installation of this ta from lower version.
- * (even after the ta will be uninstalled)
- *
- * @ta_id: trusted application (ta) id
- *
- * Return: 0 when ta security version isn't blocked
- *         <0 on system failure
- *         >0 on FW failure
- */
-static int bh_proxy_check_svl_ta_blocked_state(uuid_be ta_id)
-{
-	int ret;
-	char cmdbuf[CMDBUF_SIZE];
-	struct bhp_command_header *h = (struct bhp_command_header *)cmdbuf;
-	struct bhp_check_svl_ta_blocked_state_cmd *cmd =
-			(struct bhp_check_svl_ta_blocked_state_cmd *)h->cmd;
-	struct bh_response_record rr;
-	u64 host_id;
-
-	memset(cmdbuf, 0, sizeof(cmdbuf));
-	memset(&rr, 0, sizeof(rr));
-
-	h->id = BHP_CMD_CHECK_SVL_TA_BLOCKED_STATE;
-	cmd->ta_id = ta_id;
-
-	host_id = get_msg_host_id();
-	ret = bh_request(CONN_IDX_SDM, h, sizeof(*h) + sizeof(*cmd), NULL, 0,
-			 host_id, &rr);
-	kfree(rr.buffer);
-
-	if (!ret)
-		ret = rr.code;
-
-	return ret;
-}
-
-/**
- * bh_proxy_list_jta_packages - get list of ta packages in FW
- *
- * @conn_idx: fw client connection idx
- * @count: out param to hold the count of ta packages in FW
- * @ta_ids: out param to hold pointer to the ids of ta packages in FW
- *           The buffer which holds the ids is allocated in this function
- *           and freed by the caller
- *
- * Return: 0 when ta security version isn't blocked
- *         <0 on system failure
- *         >0 on FW failure
- */
-static int bh_proxy_list_jta_packages(int conn_idx, int *count,
-				      uuid_be **ta_ids)
-{
-	int ret;
-	char cmdbuf[CMDBUF_SIZE];
-	struct bhp_command_header *h = (struct bhp_command_header *)cmdbuf;
-	struct bh_response_record rr;
-	struct bhp_resp_list_ta_packages *resp;
-	uuid_be *outbuf;
-	unsigned int i;
-	u64 host_id;
-
-	memset(cmdbuf, 0, sizeof(cmdbuf));
-	memset(&rr, 0, sizeof(rr));
-
-	if (!bhp_is_initialized())
-		return -EFAULT;
-
-	if (!count || !ta_ids)
-		return -EINVAL;
-
-	*ta_ids = NULL;
-	*count = 0;
-
-	h->id = BHP_CMD_LIST_TA_PACKAGES;
-
-	host_id = get_msg_host_id();
-	ret = bh_request(conn_idx, h, sizeof(*h), NULL, 0, host_id, &rr);
-	if (!ret)
-		ret = rr.code;
-	if (ret)
-		goto out;
-
-	if (!rr.buffer) {
-		ret = -EBADMSG;
-		goto out;
-	}
-
-	resp = (struct bhp_resp_list_ta_packages *)rr.buffer;
-	if (!resp->count) {
-		ret = -EBADMSG;
-		goto out;
-	}
-
-	if (rr.length != sizeof(uuid_be) * resp->count + sizeof(*resp)) {
-		ret = -EBADMSG;
-		goto out;
-	}
-
-	outbuf = kcalloc(resp->count, sizeof(uuid_be), GFP_KERNEL);
-
-	if (!outbuf) {
-		ret = -ENOMEM;
-		goto out;
-	}
-
-	for (i = 0; i < resp->count; i++)
-		outbuf[i] = resp->ta_ids[i];
-
-	*ta_ids = outbuf;
-	*count = resp->count;
-
-out:
-	kfree(rr.buffer);
-	return ret;
-}
-
-/**
- * bh_proxy_download_javata - download ta package to FW
- *
- * @conn_idx: fw client connection idx
- * @ta_id: trusted application (ta) id
- * @ta_pkg: ta binary package
- * @pkg_len: ta binary package length
- *
- * Return: 0 on success
- *         <0 on system failure
- *         >0 on FW failure
- */
-static int bh_proxy_download_javata(int conn_idx,
-				    uuid_be ta_id,
-				    const char *ta_pkg,
-				    unsigned int pkg_len)
-{
-	int ret;
-	char cmdbuf[CMDBUF_SIZE];
-	struct bhp_command_header *h = (struct bhp_command_header *)cmdbuf;
-	struct bhp_download_javata_cmd *cmd =
-			(struct bhp_download_javata_cmd *)h->cmd;
-	struct bh_response_record rr;
-	u64 host_id;
-
-	memset(cmdbuf, 0, sizeof(cmdbuf));
-	memset(&rr, 0, sizeof(rr));
-
-	if (!ta_pkg || !pkg_len)
-		return -EINVAL;
-
-	h->id = BHP_CMD_DOWNLOAD_JAVATA;
-	cmd->ta_id = ta_id;
-
-	host_id = get_msg_host_id();
-	ret = bh_request(conn_idx, h, sizeof(*h) + sizeof(*cmd), ta_pkg,
-			 pkg_len, host_id, &rr);
-	kfree(rr.buffer);
-
-	if (!ret)
-		ret = rr.code;
-
-	return ret;
-}
-
-/**
- * bh_proxy_openjtasession - send open session command
- *
- * @conn_idx: fw client connection idx
- * @ta_id: trusted application (ta) id
- * @init_buffer: init parameters to the session (optional)
- * @init_len: length of the init parameters
- * @host_id: out param to hold the session host id
- * @ta_pkg: ta binary package
- * @pkg_len: ta binary package length
- *
- * Return: 0 on success
- *         <0 on system failure
- *         >0 on FW failure
- */
-static int bh_proxy_openjtasession(int conn_idx,
-				   uuid_be ta_id,
-				   const char *init_buffer,
-				   unsigned int init_len,
-				   u64 *host_id,
-				   const char *ta_pkg,
-				   unsigned int pkg_len)
-{
-	int ret;
-	struct bhp_command_header *h;
-	struct bhp_open_jtasession_cmd *cmd;
-	const size_t cmd_sz = sizeof(*h) + sizeof(*cmd);
-	char cmd_buf[cmd_sz];
-	struct bh_response_record rr;
-	struct bh_session_record *session;
-
-	if (!host_id)
-		return -EINVAL;
-
-	if (!init_buffer && init_len > 0)
-		return -EINVAL;
-
-	memset(cmd_buf, 0, cmd_sz);
-	memset(&rr, 0, sizeof(rr));
-
-	h = (struct bhp_command_header *)cmd_buf;
-	cmd = (struct bhp_open_jtasession_cmd *)h->cmd;
-
-	session = kzalloc(sizeof(*session), GFP_KERNEL);
-	if (!session)
-		return -ENOMEM;
-
-	session->host_id = get_msg_host_id();
-	session_add(conn_idx, session);
-
-	h->id = BHP_CMD_OPEN_JTASESSION;
-	cmd->ta_id = ta_id;
-
-	ret = bh_request(conn_idx, cmd_buf, cmd_sz, init_buffer, init_len,
-			 session->host_id, &rr);
-	kfree(rr.buffer);
-	rr.buffer = NULL;
-
-	if (!ret)
-		ret = rr.code;
-
-	session->ta_session_id = rr.ta_session_id;
-
-	if (ret == BHE_PACKAGE_NOT_FOUND) {
-		/*
-		 * VM might delete the TA pkg when no live session.
-		 * Download the TA pkg and open session again
-		 */
-		ret = bh_proxy_download_javata(conn_idx, ta_id,
-					       ta_pkg, pkg_len);
-		if (ret)
-			goto out_err;
-
-		ret = bh_request(conn_idx, cmd_buf, cmd_sz, init_buffer,
-				 init_len, session->host_id, &rr);
-		kfree(rr.buffer);
-
-		if (!ret)
-			ret = rr.code;
-	}
-
-	if (ret)
-		goto out_err;
-
-	*host_id = session->host_id;
-
-	return 0;
-
-out_err:
-	session_remove(conn_idx, session->host_id);
-
-	return ret;
 }
 
 /**
@@ -789,4 +534,47 @@ void bh_prep_access_denied_response(const char *cmd,
 	res->h.length = sizeof(*res);
 	res->code = BHE_OPERATION_NOT_PERMITTED;
 	res->seq = cmd_hdr->seq;
+}
+
+/**
+ * bhp_is_initialized - check if bhp is initialized
+ *
+ * Return: true when bhp is initialized
+ *         false when bhp is not initialized
+ */
+bool bhp_is_initialized(void)
+{
+	return atomic_read(&bhp_state) == 1;
+}
+
+/**
+ * bhp_init_internal - Beihai plugin init function
+ *
+ * The plugin initialization includes initializing the session lists of all
+ * dal devices (dal fw clients)
+ *
+ * Return: 0
+ */
+void bhp_init_internal(void)
+{
+	int i;
+
+	if (atomic_add_unless(&bhp_state, 1, 1))
+		for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
+			init_session_list(i);
+}
+
+/**
+ * bhp_deinit_internal - Beihai plugin deinit function
+ *
+ * The plugin deinitialization includes deinit the session lists of all
+ * dal devices (dal fw clients)
+ */
+void bhp_deinit_internal(void)
+{
+	int i;
+
+	if (atomic_add_unless(&bhp_state, -1, 0))
+		for (i = CONN_IDX_START; i < MAX_CONNECTIONS; i++)
+			free_session_list(i);
 }

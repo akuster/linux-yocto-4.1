@@ -6,7 +6,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2016-2017 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -57,97 +57,38 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
-#include <linux/kernel.h>
-#include <linux/errno.h>
 
-#include "bh_acp_exp.h"
-#include "bh_acp_internal.h"
+#ifndef _ACP_PARSER_H
+#define _ACP_PARSER_H
 
-/**
- * acp_load_pack - load and parse pack from acp file
- *
- * @raw_pack: acp file content, without the acp CSS header
- * @size: acp file size (without CSS header)
- * @cmd_id: command id
- * @pack: out param to hold the loaded pack
- *
- * Return: 0 on success
- *         -EINVAL on invalid parameters
- */
-static int acp_load_pack(const char *raw_pack, unsigned int size,
-			 unsigned int cmd_id, struct ac_pack *pack)
-{
-	int ret;
-	struct pack_reader pr;
-	struct ac_ins_jta_pack_ext *pack_ext;
-	struct ac_ins_jta_prop_ext *prop_ext;
-
-	ret = pr_init(&pr, raw_pack, size);
-	if (ret)
-		return ret;
-
-	if (cmd_id != AC_INSTALL_JTA_PROP) {
-		ret = acp_load_pack_head(&pr, &pack->head);
-		if (ret)
-			return ret;
-	}
-
-	if (cmd_id != AC_INSTALL_JTA_PROP && cmd_id != pack->head->cmd_id)
-		return -EINVAL;
-
-	switch (cmd_id) {
-	case AC_INSTALL_JTA:
-		pack_ext = (struct ac_ins_jta_pack_ext *)pack;
-		ret = acp_load_ins_jta(&pr, &pack_ext->cmd_pack);
-		if (ret)
-			break;
-		ret = acp_load_ta_pack(&pr, &pack_ext->ta_pack);
-		break;
-	case AC_INSTALL_JTA_PROP:
-		prop_ext = (struct ac_ins_jta_prop_ext *)pack;
-		ret = acp_load_ins_jta_prop(&pr, &prop_ext->cmd_pack);
-		if (ret)
-			break;
-		/* Note: the next section is JEFF file,
-		 * and not ta_pack(JTA_properties+JEFF file),
-		 * but we could reuse the ACP_load_ta_pack() here.
-		 */
-		ret = acp_load_ta_pack(&pr, &prop_ext->jeff_pack);
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	if (!pr_is_end(&pr))
-		return -EINVAL;
-
-	return ret;
-}
+#include "acp_format.h"
 
 /**
- * acp_pload_ins_jta - load and parse ta pack from acp file
+ * struct ac_ins_jta_pack_ext - parsed ta pack from acp file
  *
- * Exported function in acp parser API
- *
- * @raw_data: acp file content
- * @size: acp file size
- * @pack: out param to hold the ta pack
- *
- * Return: 0 on success
- *         -EINVAL on invalid parameters
+ * @head: acp pack header
+ * @cmd_pack: ta installation information pack
+ * @ta_pack: raw ta pack
  */
+struct ac_ins_jta_pack_ext {
+	struct ac_pack_header *head;
+	struct ac_ins_jta_pack cmd_pack;
+	char *ta_pack;
+} __packed;
+
+/**
+ * struct ac_ins_jta_prop_ext - parsed ta properties information
+ *                              from acp file
+ *
+ * @cmd_pack: ta installation properties pack
+ * @jeff_pack: ta jeff pack
+ */
+struct ac_ins_jta_prop_ext {
+	struct ac_ins_jta_prop cmd_pack;
+	char *jeff_pack;
+} __packed;
+
 int acp_pload_ins_jta(const void *raw_data, unsigned int size,
-		      struct ac_ins_jta_pack_ext *pack)
-{
-	int ret;
+		      struct ac_ins_jta_pack_ext *pack);
 
-	if (!raw_data || size <= BH_ACP_CSS_HEADER_LENGTH || !pack)
-		return -EINVAL;
-
-	ret = acp_load_pack((const char *)raw_data + BH_ACP_CSS_HEADER_LENGTH,
-			    size - BH_ACP_CSS_HEADER_LENGTH,
-			    AC_INSTALL_JTA, (struct ac_pack *)pack);
-
-	return ret;
-}
-
+#endif /* _ACP_PARSER_H */

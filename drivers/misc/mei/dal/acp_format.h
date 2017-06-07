@@ -58,16 +58,17 @@
  *
  *****************************************************************************/
 
-#ifndef BH_ACP_FORMAT_H
-#define BH_ACP_FORMAT_H
+#ifndef _ACP_FORMAT_H
+#define _ACP_FORMAT_H
 
 #include <linux/uuid.h>
-#include "bh_types.h"
+#include <linux/types.h>
 
 /* make sure those limitation values are adjusted to real world */
 #define BH_MAX_ACP_INS_REASONS_LENGTH 1024
 #define BH_MAX_ACP_USED_SERVICES 20
 #define BH_MAX_ACP_PROPS_LENGTH 2048
+#define BH_MAX_PACK_HASH_LEN 32
 
 /**
  * enum ac_cmd_id - acp file command (acp type)
@@ -95,6 +96,15 @@ enum ac_cmd_id {
 	AC_INSTALL_JTA_PROP,
 	AC_CMD_NUM
 };
+
+/**
+ * struct bh_pack_hash - ta pack hash
+ *
+ * @data: ta hash
+ */
+struct bh_pack_hash {
+	u8 data[BH_MAX_PACK_HASH_LEN];
+} __packed;
 
 /**
  * struct ac_pack_header - acp pack header
@@ -245,4 +255,4 @@ struct ac_ins_jta_prop {
 	struct bh_ta_id_list *used_service_list;
 } __packed;
 
-#endif /* BH_ACP_FORMAT_H */
+#endif /* _ACP_FORMAT_H */
