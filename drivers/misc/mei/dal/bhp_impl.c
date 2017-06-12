@@ -272,44 +272,48 @@ static int bh_recv_message(int conn_idx, struct bh_response_record *rr,
 			   u64 *out_host_id)
 {
 	int ret;
-	struct bhp_response_header headbuf;
-	struct bhp_response_header *head = &headbuf;
+	struct bhp_response_header hdr;
 	char *data = NULL;
 	unsigned int data_len = 0;
 
-	ret = bh_transport_recv(conn_idx, head, sizeof(*head));
+	if (!rr)
+		return -EINVAL;
+
+	ret = bh_transport_recv(conn_idx, &hdr, sizeof(hdr));
 	if (ret)
 		return ret;
 
 	/* check magic */
-	if (head->h.magic != BH_MSG_RESP_MAGIC)
+	if (hdr.h.magic != BH_MSG_RESP_MAGIC)
 		return -EBADMSG;
 
-	if (head->h.length > sizeof(*head)) {
-		data_len = head->h.length - sizeof(*head);
-		data = kzalloc(data_len, GFP_KERNEL);
-		ret = bh_transport_recv(conn_idx, data, data_len);
-		if (!ret && !data)
-			ret = -ENOMEM;
+	/* message contains hdr only */
+	if (hdr.h.length <= sizeof(hdr))
+		goto out;
+
+	data_len = hdr.h.length - sizeof(hdr);
+	data = kzalloc(data_len, GFP_KERNEL);
+	if (!data) {
+		ret = -ENOMEM;
+		goto out;
 	}
 
-	if (rr) {
-		rr->buffer = data;
-		rr->length = data_len;
+	ret = bh_transport_recv(conn_idx, data, data_len);
 
-		if (!ret)
-			rr->code = head->code;
-		else
-			rr->code = ret;
+	rr->buffer = data;
+	rr->length = data_len;
 
-		if (head->ta_session_id)
-			rr->ta_session_id = head->ta_session_id;
-	} else {
-		kfree(data);
-	}
+out:
+	if (ret)
+		rr->code = ret;
+	else
+		rr->code = hdr.code;
+
+	if (hdr.ta_session_id)
+		rr->ta_session_id = hdr.ta_session_id;
 
 	if (out_host_id)
-		*out_host_id = head->seq;
+		*out_host_id = hdr.seq;
 
 	return ret;
 }

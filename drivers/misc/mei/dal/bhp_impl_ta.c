@@ -542,23 +542,23 @@ int bhp_open_ta_session(u64 *host_id, const char *ta_id,
 
 	/* 2.1: check whether the ta pkg existed in VM or not */
 	ret = bh_proxy_list_jta_packages(conn_idx, &count, &ta_ids);
+	if (ret)
+		goto out;
 
-	if (!ret) {
-		for (i = 0; i < count; i++) {
-			if (!uuid_be_cmp(bin_ta_id, ta_ids[i])) {
-				ta_existed = 1;
-				break;
-			}
+	for (i = 0; i < count; i++) {
+		if (!uuid_be_cmp(bin_ta_id, ta_ids[i])) {
+			ta_existed = 1;
+			break;
 		}
-		kfree(ta_ids);
 	}
+	kfree(ta_ids);
 
 	/* 2.2: download ta pkg if not existed. */
 	if (!ta_existed) {
 		ret = bh_proxy_download_javata(conn_idx, bin_ta_id, ta_pkg,
 					       pkg_len);
 		if (ret && ret != BHE_PACKAGE_EXIST)
-			goto cleanup;
+			goto out;
 	}
 
 	/* 3: send open session command to VM */
@@ -566,7 +566,7 @@ int bhp_open_ta_session(u64 *host_id, const char *ta_id,
 				      init_param, init_len,
 				      host_id, ta_pkg, pkg_len);
 
-cleanup:
+out:
 	return ret;
 }
 
@@ -602,6 +602,7 @@ int bhp_send_and_recv(u64 host_id, int command_id,
 	struct bhp_cmd *cmd = (struct bhp_cmd *)h->cmd;
 	struct bh_response_record rr;
 	struct bh_session_record *session;
+	struct bhp_resp *resp;
 	int conn_idx = 0;
 	unsigned int len;
 
@@ -652,32 +653,33 @@ int bhp_send_and_recv(u64 host_id, int command_id,
 	if (ret)
 		goto out;
 
-	if (rr.buffer && rr.length >= sizeof(struct bhp_resp)) {
-		struct bhp_resp *resp = (struct bhp_resp *)rr.buffer;
+	if (!rr.buffer || rr.length < sizeof(struct bhp_resp)) {
+		ret = -EBADMSG;
+		goto out;
+	}
 
-		if (response_code)
-			*response_code = be32_to_cpu(resp->response);
+	resp = (struct bhp_resp *)rr.buffer;
 
-		len = rr.length - sizeof(*resp);
+	if (response_code)
+		*response_code = be32_to_cpu(resp->response);
 
-		if (*output_length < len) {
-			ret = -EMSGSIZE;
+	len = rr.length - sizeof(*resp);
+
+	if (*output_length < len) {
+		ret = -EMSGSIZE;
+		goto out;
+	}
+
+	if (len > 0 && output) {
+		*output = kzalloc(len, GFP_KERNEL);
+		if (!*output) {
+			ret = -ENOMEM;
 			goto out;
 		}
-
-		if (len > 0 && output) {
-			*output = kzalloc(len, GFP_KERNEL);
-			if (!*output) {
-				ret = -ENOMEM;
-				goto out;
-			}
-			memcpy(*output, resp->buffer, len);
-		}
-
-		*output_length = len;
-	} else {
-		ret = -EBADMSG;
+		memcpy(*output, resp->buffer, len);
 	}
+
+	*output_length = len;
 
 out:
 	kfree(rr.buffer);
