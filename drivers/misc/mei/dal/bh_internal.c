@@ -237,8 +237,6 @@ static int bh_send_message(int conn_idx,
 	int ret;
 	struct bhp_command_header *h = NULL;
 
-	mutex_enter(connections[conn_idx].bhm_send);
-
 	if (hdr_len < sizeof(*h) || !hdr)
 		return -EINVAL;
 
@@ -250,8 +248,6 @@ static int bh_send_message(int conn_idx,
 	ret = bh_transport_send(conn_idx, hdr, hdr_len, host_id);
 	if (!ret && data_len > 0)
 		ret = bh_transport_send(conn_idx, data, data_len, host_id);
-
-	mutex_exit(connections[conn_idx].bhm_send);
 
 	return ret;
 }

@@ -146,7 +146,4 @@ int bh_proxy_openjtasession(int conn_idx, uuid_be ta_id,
 void init_session_list(int conn_idx);
 void free_session_list(int conn_idx);
 
-#define mutex_enter(s) {}
-#define mutex_exit(s)  {}
-
 #endif /* __BH_INTERNAL_H */
