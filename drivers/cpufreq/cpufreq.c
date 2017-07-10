@@ -646,9 +646,10 @@ static ssize_t show_cpuinfo_cur_freq(struct cpufreq_policy *policy,
 	if(is_game_mode(procname))
 		isNFS = 1;
 
-	if (!cur_freq)
-		return sprintf(buf, "<unknown>");
-	return sprintf(buf, "%u\n", isNFS?cur_freq/2:cur_freq);
+	if (cur_freq)
+		return sprintf(buf, "%u\n", cur_freq);
+
+	return sprintf(buf, "<unknown>\n");
 }
 
 /**
