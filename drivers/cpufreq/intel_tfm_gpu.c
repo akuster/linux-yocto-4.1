@@ -118,14 +118,20 @@ static int gpu_freq_event(struct notifier_block *unused, unsigned long pstate,
 
 static int gpu_timer_thread(void *arg)
 {
+	bool turbo_status = true;
+
 	set_current_state(TASK_RUNNING);
 
 	while (!kthread_should_stop()) {
-		if (gpu_data->gpu_budget <= tfmg_settings.gpu_min_budget) {
+		if (turbo_status &&
+		    (gpu_data->gpu_budget <= tfmg_settings.gpu_min_budget)) {
 			i915_gpu_turbo_disable();
-		} else if (gpu_data->gpu_budget >= tfmg_settings.gpu_min_budget +
-				tfmg_settings.g_hysteresis) {
+			turbo_status = false;
+		} else if (!turbo_status &&
+			   (gpu_data->gpu_budget >= tfmg_settings.gpu_min_budget +
+			    tfmg_settings.g_hysteresis)) {
 			i915_gpu_turbo_enable();
+			turbo_status = true;
 		}
 
 		msleep_interruptible(tfmg_settings.gpu_timer.period);
