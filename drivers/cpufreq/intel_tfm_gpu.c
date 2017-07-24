@@ -41,6 +41,7 @@
 #include <linux/slab.h>
 #include <linux/sched.h>
 #include <linux/sysfs.h>
+#include <linux/workqueue.h>
 
 #include "intel_tfm.h"
 
@@ -49,10 +50,19 @@ static DEFINE_MUTEX(notifier_lock);
 struct gpudata *gpu_data;
 static struct task_struct *gpu_thread;
 
-static void update_gpu_counting(int pstate)
+struct gpu_work {
+	struct delayed_work counter_work;
+	int pstate;
+};
+
+struct gpu_work *gpu_workq;
+
+static void update_gpu_counting(struct work_struct *work)
 {
 	uint64_t now;
 	long long time_slice;
+	struct gpu_work *gwork = container_of(work, typeof(*gpu_workq),
+					      counter_work.work);
 
 	now = sched_clock();
 
@@ -62,7 +72,7 @@ static void update_gpu_counting(int pstate)
 	time_slice = now - gpu_data->prev_timestamp;
 	gpu_data->stats[gpu_data->prev_pstate] += time_slice;
 	gpu_data->prev_timestamp = now;
-	gpu_data->prev_pstate = pstate;
+	gpu_data->prev_pstate = gwork->pstate;
 
 	if (gpu_data->turbo_flag) {
 		pr_debug("intel-tfmg: drain GPU budget\n");
@@ -71,52 +81,51 @@ static void update_gpu_counting(int pstate)
 		gpu_data->gpu_budget -= time_slice *
 			(100 - tfmg_settings.sku->gpu_turbo_pct);
 		spin_unlock(&gpu_data->gpu_lock);
-
-		if (gpu_data->gpu_budget <= tfmg_settings.gpu_min_budget) {
-			pr_debug("intel-tfmg: request GPU TFM disable\n");
-			i915_gpu_turbo_disable();
-		}
 	} else {
 		pr_debug("intel-tfmg: recoup GPU budget\n");
 		spin_lock(&gpu_data->gpu_lock);
 		gpu_data->gpu_budget += time_slice *
 			tfmg_settings.sku->gpu_turbo_pct;
 		spin_unlock(&gpu_data->gpu_lock);
-
-		if (gpu_data->gpu_budget >= tfmg_settings.gpu_min_budget +
-				tfmg_settings.g_hysteresis) {
-			pr_debug("intel-tfmg: request GPU TFM enable\n");
-			i915_gpu_turbo_enable();
-		}
 	}
 
-	gpu_data->turbo_flag = (i915_gpu_pstate2freq(pstate) >
+	gpu_data->turbo_flag = (i915_gpu_pstate2freq(gwork->pstate) >
 			(int) tfmg_settings.sku->gpu_high_freq) ? 1 : 0;
+
+	gpu_workq->pstate = gwork->pstate;
+	schedule_delayed_work(&gpu_workq->counter_work,
+			      msecs_to_jiffies(tfmg_settings.gpu_timer.period));
 }
 
 static int gpu_freq_event(struct notifier_block *unused, unsigned long pstate,
-				void *ptr)
+			  void *ptr)
 {
 	if (pstate > gpu_data->max_pstate) {
 		pr_warn("intel-tfmg: pstate = %lu is out of range\n", pstate);
 		return NOTIFY_DONE;
 	}
 
-	mutex_lock(&notifier_lock);
-	update_gpu_counting(pstate);
-	mutex_unlock(&notifier_lock);
-
+	/*
+	 * Cancel any pending update and reschedule to update immediately
+	 * with the current pstate.
+	 */
+	cancel_delayed_work(&gpu_workq->counter_work);
+	gpu_workq->pstate = pstate;
+	schedule_delayed_work(&gpu_workq->counter_work, 0);
 	return NOTIFY_DONE;
 }
+
 
 static int gpu_timer_thread(void *arg)
 {
 	set_current_state(TASK_RUNNING);
 
 	while (!kthread_should_stop()) {
-		if (mutex_trylock(&notifier_lock)) {
-			update_gpu_counting(gpu_data->prev_pstate);
-			mutex_unlock(&notifier_lock);
+		if (gpu_data->gpu_budget <= tfmg_settings.gpu_min_budget) {
+			i915_gpu_turbo_disable();
+		} else if (gpu_data->gpu_budget >= tfmg_settings.gpu_min_budget +
+				tfmg_settings.g_hysteresis) {
+			i915_gpu_turbo_enable();
 		}
 
 		msleep_interruptible(tfmg_settings.gpu_timer.period);
@@ -124,6 +133,7 @@ static int gpu_timer_thread(void *arg)
 
 	return 0;
 }
+
 
 static struct notifier_block gpu_tfm_notifier = {
 	.notifier_call = gpu_freq_event
@@ -283,6 +293,12 @@ int gpu_manager_init(void)
 	if (!gpu_data)
 		return -ENOMEM;
 
+	gpu_workq = kzalloc(sizeof(struct gpu_work), GFP_KERNEL);
+	if (!gpu_workq) {
+		kfree(gpu_data);
+		return -ENOMEM;
+	}
+
 	gpu_data->max_pstate = i915_gpu_get_max_pstate();
 	gpu_data->stats = kzalloc(sizeof(uint64_t) *
 			(gpu_data->max_pstate + 1), GFP_KERNEL);
@@ -292,6 +308,13 @@ int gpu_manager_init(void)
 	}
 	spin_lock_init(&gpu_data->gpu_lock);
 
+	/* Schedule the initial counter update */
+	INIT_DELAYED_WORK(&gpu_workq->counter_work, update_gpu_counting);
+	gpu_workq->pstate = 0;
+	schedule_delayed_work(&gpu_workq->counter_work,
+			      msecs_to_jiffies(tfmg_settings.gpu_timer.period));
+
+	/* Set up thread to monitor budget */
 	gpu_thread = kthread_create(gpu_timer_thread, NULL, "gpu_timer_t");
 	if (IS_ERR(gpu_thread)) {
 		pr_err("intel-tfmg: Couldn't create gpu timer thread\n");
@@ -321,6 +344,7 @@ gpu_manager_err2:
 	kfree(gpu_data->stats);
 gpu_manager_err1:
 	kfree(gpu_data);
+	kfree(gpu_workq);
 	return ret;
 }
 
@@ -328,8 +352,10 @@ void gpu_manager_cleanup(void)
 {
 	gpu_unregister_notification();
 	kthread_stop(gpu_thread);
+	cancel_delayed_work(&gpu_workq->counter_work);
 	kfree(gpu_data->stats);
 	kfree(gpu_data);
+	kfree(gpu_workq);
 }
 #else
 int gpu_manager_init(void) { return 0; };
