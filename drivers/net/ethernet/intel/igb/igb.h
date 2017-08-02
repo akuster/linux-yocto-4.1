@@ -43,6 +43,9 @@ struct igb_adapter;
 
 #define E1000_PCS_CFG_IGN_SD	1
 
+/* Runtime PM defines */
+#define IGB_AUTOSUSPEND_DELAY_MS	1500
+
 /* Interrupt defines */
 #define IGB_START_ITR		648 /* ~6000 ints/sec */
 #define IGB_4K_ITR		980
@@ -388,9 +391,12 @@ struct igb_adapter {
 	u32 en_mng_pt;
 	u16 link_speed;
 	u16 link_duplex;
+	u32 igb_tx_pending;
 
 	struct work_struct reset_task;
 	struct work_struct watchdog_task;
+	struct work_struct rpm_xmit_task;
+	struct work_struct set_rx_mode_task;
 	bool fc_autoneg;
 	u8  tx_timeout_factor;
 	struct timer_list blink_timer;
@@ -400,6 +406,8 @@ struct igb_adapter {
 	struct pci_dev *pdev;
 
 	spinlock_t stats64_lock;
+	/* spin lock for tx pending count */
+	spinlock_t rpm_txlock;
 	struct rtnl_link_stats64 stats64;
 
 	/* structs defined in e1000_hw.h */
@@ -463,6 +471,8 @@ struct igb_adapter {
 	int copper_tries;
 	struct e1000_info ei;
 	u16 eee_advert;
+	u8 igb_runtime_status;
+	u8 igb_runtime_auto;
 };
 
 #define IGB_FLAG_HAS_MSI		(1 << 0)

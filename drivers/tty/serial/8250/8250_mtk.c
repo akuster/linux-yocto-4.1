@@ -115,16 +115,6 @@ mtk8250_set_termios(struct uart_port *port, struct ktermios *termios,
 		tty_termios_encode_baud_rate(termios, baud, baud);
 }
 
-static void
-mtk8250_do_pm(struct uart_port *port, unsigned int state, unsigned int old)
-{
-	if (!state)
-		pm_runtime_get_sync(port->dev);
-
-	serial8250_do_pm(port, state, old);
-
-	if (state)
-		pm_runtime_put_sync_suspend(port->dev);
 }
 
 static int mtk8250_probe_of(struct platform_device *pdev, struct uart_port *p,
@@ -182,7 +172,6 @@ static int mtk8250_probe(struct platform_device *pdev)
 	spin_lock_init(&uart.port.lock);
 	uart.port.mapbase = regs->start;
 	uart.port.irq = irq->start;
-	uart.port.pm = mtk8250_do_pm;
 	uart.port.type = PORT_16550;
 	uart.port.flags = UPF_BOOT_AUTOCONF | UPF_FIXED_PORT;
 	uart.port.dev = &pdev->dev;
