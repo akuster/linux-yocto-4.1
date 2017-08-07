@@ -14,6 +14,7 @@
  * raised, the LCR needs to be rewritten and the uart status register read.
  */
 #include <linux/device.h>
+#include <linux/gpio/consumer.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/serial_8250.h>
@@ -21,7 +22,9 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
+#include <linux/pm_wakeirq.h>
 #include <linux/slab.h>
 #include <linux/acpi.h>
 #include <linux/clk.h>
@@ -219,18 +222,6 @@ static int dw8250_handle_irq(struct uart_port *p)
 	return 0;
 }
 
-static void
-dw8250_do_pm(struct uart_port *port, unsigned int state, unsigned int old)
-{
-	if (!state)
-		pm_runtime_get_sync(port->dev);
-
-	serial8250_do_pm(port, state, old);
-
-	if (state)
-		pm_runtime_put_sync_suspend(port->dev);
-}
-
 static void dw8250_set_termios(struct uart_port *p, struct ktermios *termios,
 			       struct ktermios *old)
 {
@@ -358,24 +349,61 @@ static void dw8250_setup_port(struct uart_port *p)
 		up->capabilities |= UART_CAP_AFE;
 }
 
+static int dw8250_init_wakeup(struct device *dev)
+{
+	struct gpio_desc *wake;
+	int irq, err;
+
+	/* Set up RxD or CTS pin as wake source */
+	wake = gpiod_get(dev, "rx", GPIOD_IN);
+	if (IS_ERR(wake))
+		wake = gpiod_get(dev, "cts", GPIOD_IN);
+	if (IS_ERR(wake))
+		return PTR_ERR(wake);
+
+	irq = gpiod_to_irq(wake);
+	if (irq < 0) {
+		err = irq;
+	} else {
+		device_init_wakeup(dev, true);
+		err = dev_pm_set_dedicated_wake_irq(dev, irq);
+		if (err) {
+			dev_warn(dev, "Can't set dedicated wake IRQ: %d\n",
+				 err);
+			device_init_wakeup(dev, false);
+		} else {
+			irq_set_irq_type(irq, IRQ_TYPE_EDGE_BOTH);
+		}
+	}
+	gpiod_put(wake);
+	return err;
+}
+
+static void dw8250_clear_wakeup(struct device *dev)
+{
+	dev_pm_clear_wake_irq(dev);
+	device_init_wakeup(dev, false);
+}
+
 static int dw8250_probe(struct platform_device *pdev)
 {
-	struct uart_8250_port uart = {};
+	struct uart_8250_port uart = {}, *up = &uart;
 	struct resource *regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	int irq = platform_get_irq(pdev, 0);
-	struct uart_port *p = &uart.port;
+	struct uart_port *p = &up->port;
+	struct device *dev = &pdev->dev;
 	struct dw8250_data *data;
 	int err;
 	u32 val;
 
 	if (!regs) {
-		dev_err(&pdev->dev, "no registers defined\n");
+		dev_err(dev, "no registers defined\n");
 		return -EINVAL;
 	}
 
 	if (irq < 0) {
 		if (irq != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "cannot get irq\n");
+			dev_err(dev, "cannot get irq\n");
 		return irq;
 	}
 
@@ -383,19 +411,18 @@ static int dw8250_probe(struct platform_device *pdev)
 	p->mapbase	= regs->start;
 	p->irq		= irq;
 	p->handle_irq	= dw8250_handle_irq;
-	p->pm		= dw8250_do_pm;
 	p->type		= PORT_8250;
 	p->flags	= UPF_SHARE_IRQ | UPF_FIXED_PORT;
-	p->dev		= &pdev->dev;
+	p->dev		= dev;
 	p->iotype	= UPIO_MEM;
 	p->serial_in	= dw8250_serial_in;
 	p->serial_out	= dw8250_serial_out;
 
-	p->membase = devm_ioremap(&pdev->dev, regs->start, resource_size(regs));
+	p->membase = devm_ioremap(dev, regs->start, resource_size(regs));
 	if (!p->membase)
 		return -ENOMEM;
 
-	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
+	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
@@ -403,57 +430,57 @@ static int dw8250_probe(struct platform_device *pdev)
 	data->usr_reg = DW_UART_USR;
 	p->private_data = data;
 
-	data->uart_16550_compatible = device_property_read_bool(p->dev,
+	data->uart_16550_compatible = device_property_read_bool(dev,
 						"snps,uart-16550-compatible");
 
-	err = device_property_read_u32(p->dev, "reg-shift", &val);
+	err = device_property_read_u32(dev, "reg-shift", &val);
 	if (!err)
 		p->regshift = val;
 
-	err = device_property_read_u32(p->dev, "reg-io-width", &val);
+	err = device_property_read_u32(dev, "reg-io-width", &val);
 	if (!err && val == 4) {
 		p->iotype = UPIO_MEM32;
 		p->serial_in = dw8250_serial_in32;
 		p->serial_out = dw8250_serial_out32;
 	}
 
-	if (device_property_read_bool(p->dev, "dcd-override")) {
+	if (device_property_read_bool(dev, "dcd-override")) {
 		/* Always report DCD as active */
 		data->msr_mask_on |= UART_MSR_DCD;
 		data->msr_mask_off |= UART_MSR_DDCD;
 	}
 
-	if (device_property_read_bool(p->dev, "dsr-override")) {
+	if (device_property_read_bool(dev, "dsr-override")) {
 		/* Always report DSR as active */
 		data->msr_mask_on |= UART_MSR_DSR;
 		data->msr_mask_off |= UART_MSR_DDSR;
 	}
 
-	if (device_property_read_bool(p->dev, "cts-override")) {
+	if (device_property_read_bool(dev, "cts-override")) {
 		/* Always report CTS as active */
 		data->msr_mask_on |= UART_MSR_CTS;
 		data->msr_mask_off |= UART_MSR_DCTS;
 	}
 
-	if (device_property_read_bool(p->dev, "ri-override")) {
+	if (device_property_read_bool(dev, "ri-override")) {
 		/* Always report Ring indicator as inactive */
 		data->msr_mask_off |= UART_MSR_RI;
 		data->msr_mask_off |= UART_MSR_TERI;
 	}
 
 	/* Always ask for fixed clock rate from a property. */
-	device_property_read_u32(p->dev, "clock-frequency", &p->uartclk);
+	device_property_read_u32(dev, "clock-frequency", &p->uartclk);
 
 	/* If there is separate baudclk, get the rate from it. */
-	data->clk = devm_clk_get(&pdev->dev, "baudclk");
+	data->clk = devm_clk_get(dev, "baudclk");
 	if (IS_ERR(data->clk) && PTR_ERR(data->clk) != -EPROBE_DEFER)
-		data->clk = devm_clk_get(&pdev->dev, NULL);
+		data->clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(data->clk) && PTR_ERR(data->clk) == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
 	if (!IS_ERR_OR_NULL(data->clk)) {
 		err = clk_prepare_enable(data->clk);
 		if (err)
-			dev_warn(&pdev->dev, "could not enable optional baudclk: %d\n",
+			dev_warn(dev, "could not enable optional baudclk: %d\n",
 				 err);
 		else
 			p->uartclk = clk_get_rate(data->clk);
@@ -461,24 +488,24 @@ static int dw8250_probe(struct platform_device *pdev)
 
 	/* If no clock rate is defined, fail. */
 	if (!p->uartclk) {
-		dev_err(&pdev->dev, "clock rate not defined\n");
+		dev_err(dev, "clock rate not defined\n");
 		return -EINVAL;
 	}
 
-	data->pclk = devm_clk_get(&pdev->dev, "apb_pclk");
-	if (IS_ERR(data->clk) && PTR_ERR(data->clk) == -EPROBE_DEFER) {
+	data->pclk = devm_clk_get(dev, "apb_pclk");
+	if (IS_ERR(data->pclk) && PTR_ERR(data->pclk) == -EPROBE_DEFER) {
 		err = -EPROBE_DEFER;
 		goto err_clk;
 	}
 	if (!IS_ERR(data->pclk)) {
 		err = clk_prepare_enable(data->pclk);
 		if (err) {
-			dev_err(&pdev->dev, "could not enable apb_pclk\n");
+			dev_err(dev, "could not enable apb_pclk\n");
 			goto err_clk;
 		}
 	}
 
-	data->rst = devm_reset_control_get_optional(&pdev->dev, NULL);
+	data->rst = devm_reset_control_get_optional(dev, NULL);
 	if (IS_ERR(data->rst) && PTR_ERR(data->rst) == -EPROBE_DEFER) {
 		err = -EPROBE_DEFER;
 		goto err_pclk;
@@ -499,19 +526,26 @@ static int dw8250_probe(struct platform_device *pdev)
 	if (p->fifosize) {
 		data->dma.rxconf.src_maxburst = p->fifosize / 4;
 		data->dma.txconf.dst_maxburst = p->fifosize / 4;
-		uart.dma = &data->dma;
+		up->dma = &data->dma;
 	}
 
-	data->line = serial8250_register_8250_port(&uart);
+	data->line = serial8250_register_8250_port(up);
 	if (data->line < 0) {
 		err = data->line;
 		goto err_reset;
 	}
 
+	err = dw8250_init_wakeup(dev);
+	if (err)
+		dev_dbg(dev, "Can't init wakeup: %d\n", err);
+
 	platform_set_drvdata(pdev, data);
 
-	pm_runtime_set_active(&pdev->dev);
-	pm_runtime_enable(&pdev->dev);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_set_autosuspend_delay(dev, -1);
+
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
 
 	return 0;
 
@@ -533,8 +567,11 @@ err_clk:
 static int dw8250_remove(struct platform_device *pdev)
 {
 	struct dw8250_data *data = platform_get_drvdata(pdev);
+	struct device *dev = &pdev->dev;
 
-	pm_runtime_get_sync(&pdev->dev);
+	dw8250_clear_wakeup(dev);
+
+	pm_runtime_get_sync(dev);
 
 	serial8250_unregister_port(data->line);
 
@@ -547,8 +584,8 @@ static int dw8250_remove(struct platform_device *pdev)
 	if (!IS_ERR(data->clk))
 		clk_disable_unprepare(data->clk);
 
-	pm_runtime_disable(&pdev->dev);
-	pm_runtime_put_noidle(&pdev->dev);
+	pm_runtime_disable(dev);
+	pm_runtime_put_noidle(dev);
 
 	return 0;
 }
@@ -578,6 +615,8 @@ static int dw8250_runtime_suspend(struct device *dev)
 {
 	struct dw8250_data *data = dev_get_drvdata(dev);
 
+	pinctrl_pm_select_sleep_state(dev);
+
 	if (!IS_ERR(data->clk))
 		clk_disable_unprepare(data->clk);
 
@@ -590,6 +629,7 @@ static int dw8250_runtime_suspend(struct device *dev)
 static int dw8250_runtime_resume(struct device *dev)
 {
 	struct dw8250_data *data = dev_get_drvdata(dev);
+	struct uart_8250_port *up = serial8250_get_port(data->line);
 
 	if (!IS_ERR(data->pclk))
 		clk_prepare_enable(data->pclk);
@@ -597,6 +637,16 @@ static int dw8250_runtime_resume(struct device *dev)
 	if (!IS_ERR(data->clk))
 		clk_prepare_enable(data->clk);
 
+	pinctrl_pm_select_default_state(dev);
+
+	/* Restore context */
+	serial8250_do_restore_context(&up->port);
+
+	pm_runtime_mark_last_busy(dev);
+
+	/* TODO: Check if it needs more than it's done in
+	 * serial8250_console_restore()
+	 */
 	return 0;
 }
 #endif
